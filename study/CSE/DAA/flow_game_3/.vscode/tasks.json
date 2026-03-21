@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "build-game",
+            "command": "C:\\mingw64\\bin\\g++.exe",
+            "args": [
+                "-g",
+                "${workspaceFolder}/src/main.cpp",
+                "${workspaceFolder}/src/board.cpp",
+                "${workspaceFolder}/src/algorithm.cpp",
+
+                "-I${workspaceFolder}/header",
+                "-IC:/raylib/raylib/src",
+
+                "-o",
+                "${workspaceFolder}/game.exe",
+
+                "-L", "C:/raylib/raylib/src",
+                "-lraylib",
+                "-lopengl32",
+                "-lgdi32",
+                "-lwinmm",
+                "-lshell32",
+                "-luser32",
+                "-lkernel32"
+            ],
+            "problemMatcher": ["$gcc"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
