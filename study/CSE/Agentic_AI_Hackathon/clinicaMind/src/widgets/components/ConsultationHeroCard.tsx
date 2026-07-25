@@ -32,7 +32,7 @@ export function ConsultationHeroCard({
             <h2 className="heading-4 flex items-center gap-2">
               Live Consultation Audio & Transcript Stream
               <span className={isListening ? 'badge-critical animate-pulse' : 'badge-normal'}>
-                {isListening ? 'LIVE RECORDING' : 'AUDIO READY'}
+                {isListening ? 'LIVE MIC RECORDING' : 'AUDIO READY'}
               </span>
             </h2>
             <p className="body-sm">Real-time voice processing & multi-agent signal extraction</p>
@@ -63,9 +63,9 @@ export function ConsultationHeroCard({
         <div className="flex items-center justify-between text-xs font-mono">
           <span className="text-slate-400 flex items-center gap-1.5">
             <Activity size={14} className="text-emerald-400 animate-pulse" />
-            <span>Consultation Audio Frequency Input</span>
+            <span>Consultation Live Audio Frequency Input</span>
           </span>
-          <span className="text-emerald-400 font-bold">44.1 kHz • Active Stream</span>
+          <span className="text-emerald-400 font-bold">44.1 kHz • PCM Mono Input Stream</span>
         </div>
 
         {/* Waveform Equalizer Animation Bars */}
@@ -87,8 +87,8 @@ export function ConsultationHeroCard({
       <div className="grid grid-cols-3 gap-4">
         {/* Live Transcript Box */}
         <div className="col-span-2 bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-1">
-          <span className="label-text block">Live Voice Transcript:</span>
-          <p className="body-md italic leading-relaxed">
+          <span className="label-text block">Live Voice Transcript Stream:</span>
+          <p className="body-md italic leading-relaxed max-h-24 overflow-y-auto pr-1">
             "{transcript}"
           </p>
         </div>
@@ -116,13 +116,13 @@ export function ConsultationHeroCard({
       <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-3 rounded-xl flex items-center justify-between text-xs font-mono">
         <div className="flex items-center gap-3">
           <Sparkles size={16} className="text-indigo-400 animate-pulse" />
-          <span>Multi-Agent Activity Ticker:</span>
+          <span>Multi-Agent Live Activity Ticker:</span>
           <span className="text-emerald-300 font-bold">Medication Agent flagged Penicillin Allergy</span>
           <span className="text-slate-400">•</span>
           <span className="text-blue-300">Research Agent cited JAMA 2026</span>
         </div>
         <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800 px-2 py-0.5 rounded">
-          Sync: 12ms
+          Latency: ~12ms
         </span>
       </div>
     </div>
