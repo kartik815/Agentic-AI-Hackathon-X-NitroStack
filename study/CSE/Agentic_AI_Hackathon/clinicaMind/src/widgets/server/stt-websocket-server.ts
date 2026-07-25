@@ -30,8 +30,7 @@ wss.on('connection', (clientWs: WebSocket) => {
     smart_format: true,
     diarize: true,
     interim_results: true,
-    punctuate: true,
-    encoding: 'webm'
+    punctuate: true
   });
 
   let isDgOpen = false;
