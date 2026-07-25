@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Upload, Volume2, UserCheck, Stethoscope, AlertCircle, RefreshCcw } from 'lucide-react';
+import { Mic, MicOff, Upload, Volume2, UserCheck, Stethoscope, AlertCircle, RefreshCcw, Terminal, CheckCircle2 } from 'lucide-react';
 
 export interface DiarizedTurn {
   id: string;
@@ -28,6 +28,23 @@ export function AudioStreamRecorder({
   const [micStatus, setMicStatus] = useState<'READY' | 'RECORDING' | 'PERMISSION_DENIED' | 'UNSUPPORTED' | 'DISCONNECTED'>('READY');
   const [audioError, setAudioError] = useState<string | null>(null);
 
+  // Stage Diagnostics State
+  const [stageLogs, setStageLogs] = useState<{
+    stage1Mic: string;
+    stage2MediaRecorder: string;
+    stage3SttEngine: string;
+    stage4AudioTx: string;
+    stage5FirstJson: string;
+    stage6ReactState: string;
+  }>({
+    stage1Mic: 'Awaiting microphone stream...',
+    stage2MediaRecorder: 'MediaRecorder idle...',
+    stage3SttEngine: 'STT engine idle...',
+    stage4AudioTx: 'Audio packets: 0 sent',
+    stage5FirstJson: 'Raw JSON: None received yet',
+    stage6ReactState: 'React Turns State: 0 turns'
+  });
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -37,6 +54,9 @@ export function AudioStreamRecorder({
   const deepgramWsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const packetsSentRef = useRef<number>(0);
+  const totalBytesSentRef = useRef<number>(0);
 
   // Initialize Web Audio API Analyser & Canvas Visualizer
   const setupAudioContext = (stream: MediaStream) => {
@@ -98,44 +118,120 @@ export function AudioStreamRecorder({
     renderFrame();
   };
 
-  // Setup Deepgram WebSocket Streaming API if API Key is configured, else fallback to Web Speech API
+  // Stage 3 & 4: Deepgram WebSocket Streaming STT
   const setupDeepgramStreaming = (stream: MediaStream) => {
     const deepgramKey = process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY;
-    if (!deepgramKey) return false;
+    console.log('🔍 [Stage 3 Deepgram Key Check]:', deepgramKey ? 'Key Present (Length: ' + deepgramKey.length + ')' : 'Key Blank/Missing');
+
+    if (!deepgramKey || deepgramKey.trim() === '') {
+      setStageLogs((prev) => ({
+        ...prev,
+        stage3SttEngine: '⚠️ NEXT_PUBLIC_DEEPGRAM_API_KEY is blank. Using Web Speech API fallback.'
+      }));
+      return false;
+    }
 
     try {
-      const ws = new WebSocket(`wss://api.deepgram.com/v1/listen?model=nova-2-medical&diarize=true&punctuate=true`, ['token', deepgramKey]);
-      
+      const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2-medical&smart_format=true&diarize=true&interim_results=true`;
+      console.log('🌐 [Stage 3 Opening Deepgram WebSocket]:', wsUrl);
+
+      setStageLogs((prev) => ({
+        ...prev,
+        stage3SttEngine: `Connecting Deepgram WS: ${wsUrl}`
+      }));
+
+      const ws = new WebSocket(wsUrl, ['token', deepgramKey]);
+
       ws.onopen = () => {
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        console.log('✅ [Stage 3 WebSocket Opened Successfully]');
+        setStageLogs((prev) => ({
+          ...prev,
+          stage3SttEngine: '✅ Deepgram WS Connected (Model: nova-2-medical, Diarize: true)'
+        }));
+
+        // Stage 2: Start MediaRecorder Audio Transmission
+        let mimeType = 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        }
+
+        const mediaRecorder = new MediaRecorder(stream, { mimeType });
+        packetsSentRef.current = 0;
+        totalBytesSentRef.current = 0;
+
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
             ws.send(event.data);
+            packetsSentRef.current += 1;
+            totalBytesSentRef.current += event.data.size;
+
+            setStageLogs((prev) => ({
+              ...prev,
+              stage2MediaRecorder: `MediaRecorder: ${mimeType}, chunk size: ${event.data.size} bytes`,
+              stage4AudioTx: `Transmitted ${packetsSentRef.current} chunks (${totalBytesSentRef.current} bytes) to Deepgram`
+            }));
           }
         };
+
         mediaRecorder.start(250);
         mediaRecorderRef.current = mediaRecorder;
       };
 
       ws.onmessage = (message) => {
-        const received = JSON.parse(message.data);
-        const transcript = received.channel?.alternatives[0]?.transcript;
-        if (transcript) {
-          const speakerId = received.channel?.alternatives[0]?.words[0]?.speaker || 0;
-          const speakerLabel: 'Doctor' | 'Patient' = speakerId === 0 ? 'Doctor' : 'Patient';
+        console.log('📩 [Stage 5 Raw Message Received from Deepgram]:', message.data);
+        const rawJsonString = message.data;
 
-          if (received.is_final) {
-            addTurn(speakerLabel, transcript, 0.97, true);
-          } else {
-            setInterimText(transcript);
+        setStageLogs((prev) => ({
+          ...prev,
+          stage5FirstJson: `Raw JSON: ${rawJsonString.substring(0, 140)}...`
+        }));
+
+        try {
+          const received = JSON.parse(message.data);
+          const channel = received.channel;
+          const transcript = channel?.alternatives?.[0]?.transcript;
+
+          if (transcript && transcript.trim().length > 0) {
+            const words = channel?.alternatives?.[0]?.words || [];
+            const speakerId = words[0]?.speaker !== undefined ? words[0].speaker : 0;
+            const speakerLabel: 'Doctor' | 'Patient' = speakerId === 0 ? 'Doctor' : 'Patient';
+            const isFinal = received.is_final || false;
+            const confidence = channel?.alternatives?.[0]?.confidence || 0.95;
+
+            if (isFinal) {
+              addTurn(speakerLabel, transcript.trim(), parseFloat(confidence.toFixed(2)), true);
+              setInterimText('');
+            } else {
+              setInterimText(transcript);
+            }
           }
+        } catch (err) {
+          console.error('Error parsing Deepgram JSON:', err);
         }
+      };
+
+      ws.onerror = (error) => {
+        console.error('❌ [Stage 3 Deepgram WebSocket Error]:', error);
+        setStageLogs((prev) => ({
+          ...prev,
+          stage3SttEngine: '❌ Deepgram WebSocket Error. Check API Key or Network.'
+        }));
+      };
+
+      ws.onclose = (event) => {
+        console.log('🚪 [Stage 3 Deepgram WebSocket Closed]:', event.code, event.reason);
       };
 
       deepgramWsRef.current = ws;
       return true;
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Deepgram streaming fallback notice:', e);
+      setStageLogs((prev) => ({
+        ...prev,
+        stage3SttEngine: `Deepgram Exception: ${e.message || 'Fallback to Web Speech'}`
+      }));
       return false;
     }
   };
@@ -144,7 +240,11 @@ export function AudioStreamRecorder({
   const setupSpeechRecognition = () => {
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionClass) {
-      console.warn('SpeechRecognition API not available in browser. Speech turns will be added via audio input.');
+      console.warn('SpeechRecognition API not available in browser.');
+      setStageLogs((prev) => ({
+        ...prev,
+        stage3SttEngine: '⚠️ SpeechRecognition API not supported by browser.'
+      }));
       return;
     }
 
@@ -154,12 +254,22 @@ export function AudioStreamRecorder({
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
+      setStageLogs((prev) => ({
+        ...prev,
+        stage3SttEngine: '✅ Browser SpeechRecognition active (en-US continuous)'
+      }));
+
       recognition.onresult = (event: any) => {
         let currentInterim = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const res = event.results[i];
           const transcriptText = res[0].transcript;
           const conf = res[0].confidence || 0.95;
+
+          setStageLogs((prev) => ({
+            ...prev,
+            stage5FirstJson: `Raw Speech STT: "${transcriptText}" (IsFinal: ${res.isFinal})`
+          }));
 
           if (res.isFinal) {
             const isQuestion = transcriptText.trim().endsWith('?') || transcriptText.toLowerCase().startsWith('how') || transcriptText.toLowerCase().startsWith('what') || transcriptText.toLowerCase().startsWith('do you');
@@ -176,11 +286,15 @@ export function AudioStreamRecorder({
 
       recognition.onerror = (event: any) => {
         console.warn('SpeechRecognition notice:', event.error);
+        setStageLogs((prev) => ({
+          ...prev,
+          stage3SttEngine: `SpeechRecognition Notice: ${event.error}`
+        }));
       };
 
       recognition.start();
       recognitionRef.current = recognition;
-    } catch (e) {
+    } catch (e: any) {
       console.warn('SpeechRecognition init notice:', e);
     }
   };
@@ -198,12 +312,18 @@ export function AudioStreamRecorder({
     setDiarizedTurns((prev) => {
       const updated = [...prev, newTurn];
       const fullText = updated.map((t) => `${t.speaker}: "${t.text}"`).join(' ');
+
+      setStageLogs((s) => ({
+        ...s,
+        stage6ReactState: `React State Updated: ${updated.length} turn(s). Triggered Supervisor.`
+      }));
+
       onTranscriptUpdate(fullText);
       return updated;
     });
   };
 
-  // Setup Browser Microphone Stream
+  // Stage 1: Setup Browser Microphone Stream
   useEffect(() => {
     let activeStream: MediaStream | null = null;
 
@@ -216,18 +336,30 @@ export function AudioStreamRecorder({
           return;
         }
 
+        console.log('🎤 [Stage 1 Requesting Microphone Permission...]');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         activeStream = stream;
         mediaStreamRef.current = stream;
         setMicStatus('RECORDING');
 
+        const audioTrack = stream.getAudioTracks()[0];
+        const settings = audioTrack.getSettings();
+        const sampleRate = settings.sampleRate || 44100;
+        const channelCount = settings.channelCount || 1;
+        const label = audioTrack.label || 'Default Audio Device';
+
+        console.log(`✅ [Stage 1 Mic Opened]: ${label}, SampleRate: ${sampleRate} Hz, Channels: ${channelCount}`);
+        setStageLogs((prev) => ({
+          ...prev,
+          stage1Mic: `✅ Mic Stream Active: ${label} (${sampleRate} Hz / ${channelCount} ch)`
+        }));
+
         // Handle disconnects
-        stream.getAudioTracks().forEach((track) => {
-          track.onended = () => {
-            setMicStatus('DISCONNECTED');
-            setAudioError('Microphone disconnected.');
-          };
-        });
+        audioTrack.onended = () => {
+          setMicStatus('DISCONNECTED');
+          setAudioError('Microphone disconnected.');
+          setStageLogs((prev) => ({ ...prev, stage1Mic: '❌ Microphone Disconnected.' }));
+        };
 
         setupAudioContext(stream);
 
@@ -237,13 +369,15 @@ export function AudioStreamRecorder({
         }
 
       } catch (err: any) {
-        console.error('Microphone access error:', err);
+        console.error('❌ [Stage 1 Microphone Access Error]:', err);
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
           setMicStatus('PERMISSION_DENIED');
           setAudioError('Microphone permission denied by browser settings.');
+          setStageLogs((prev) => ({ ...prev, stage1Mic: '❌ Permission Denied by User/Browser.' }));
         } else {
           setMicStatus('DISCONNECTED');
           setAudioError(err.message || 'Failed to initialize microphone stream.');
+          setStageLogs((prev) => ({ ...prev, stage1Mic: `❌ Error: ${err.message}` }));
         }
       }
     };
@@ -301,7 +435,7 @@ export function AudioStreamRecorder({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      addTurn('Patient', `[Audio File Transcribed: ${file.name}] Patient presents with acute symptoms.`, 0.99, true);
+      addTurn('Patient', `[Audio File Transcribed: ${file.name}] Patient presents with acute chest distress.`, 0.99, true);
     }
   };
 
@@ -375,6 +509,22 @@ export function AudioStreamRecorder({
           height={36}
           className="w-full h-9 rounded bg-slate-900/80"
         />
+      </div>
+
+      {/* Pipeline Diagnostic Stage Logs Panel */}
+      <div className="bg-slate-900 text-slate-200 p-3 rounded-xl border border-slate-800 font-mono text-[11px] space-y-1">
+        <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs pb-1 border-b border-slate-800">
+          <Terminal size={14} />
+          <span>Audio Pipeline Diagnostic Stage Logs:</span>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1">
+          <div className="text-emerald-400">{stageLogs.stage1Mic}</div>
+          <div className="text-blue-400">{stageLogs.stage2MediaRecorder}</div>
+          <div className="text-purple-400">{stageLogs.stage3SttEngine}</div>
+          <div className="text-amber-400">{stageLogs.stage4AudioTx}</div>
+        </div>
+        <div className="text-slate-400 truncate pt-1 border-t border-slate-800/80">{stageLogs.stage5FirstJson}</div>
+        <div className="text-emerald-300 font-bold">{stageLogs.stage6ReactState}</div>
       </div>
 
       {/* Live Interim Streaming Bubble */}
