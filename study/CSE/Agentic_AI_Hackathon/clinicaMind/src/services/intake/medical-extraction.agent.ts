@@ -73,75 +73,75 @@ export class MedicalExtractionAgent {
 
     if (!rawName) {
       // Fallback name parser from header or filenames
-      rawName = 'Eleanor Vance';
+      rawName = 'Unspecified Patient';
     }
 
     const nameParts = rawName.split(' ').filter(Boolean);
-    const firstName = nameParts[0] || 'Unknown';
+    const firstName = nameParts[0] || 'Unspecified';
     const lastName = nameParts.slice(1).join(' ') || 'Patient';
     const fullName = `${firstName} ${lastName}`;
 
     // 2. DOB & Age
     const dob = extractPattern(/DOB:\s*(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})/i) ||
                 extractPattern(/Date of Birth:\s*(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})/i) ||
-                '1956-03-14';
+                '1990-01-01';
 
     const ageStr = extractPattern(/Age:\s*(\d+)/i);
-    const age = ageStr ? parseInt(ageStr, 10) : 70;
+    const age = ageStr ? parseInt(ageStr, 10) : 35;
 
     // 3. Gender
     const gender = extractPattern(/Gender:\s*(Female|Male|Other)/i) ||
                    extractPattern(/Sex:\s*(Female|Male|F|M)/i) ||
-                   'Female';
+                   'Other';
 
     // 4. Contact Details
-    const phone = extractPattern(/Phone:\s*([\d()+\s-]{10,20})/i) || '+1 (555) 234-5678';
-    const email = extractPattern(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i) || `${firstName.toLowerCase()}.${lastName.toLowerCase()}@example.com`;
-    const address = extractPattern(/Address:\s*([^\n]+)/i) || '742 Evergreen Terrace, Springfield';
+    const phone = extractPattern(/Phone:\s*([\d()+\s-]{10,20})/i) || 'N/A';
+    const email = extractPattern(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i) || '';
+    const address = extractPattern(/Address:\s*([^\n]+)/i) || 'N/A';
 
     // 5. Insurance
-    const provider = extractPattern(/Insurance:\s*([^\n,]+)/i) || 'Medicare Choice Health';
-    const policyNumber = extractPattern(/Policy:\s*([A-Z0-9-]+)/i) || 'MC-9872104-X';
-    const groupNumber = extractPattern(/Group:\s*([A-Z0-9-]+)/i) || 'GRP-55412';
+    const provider = extractPattern(/Insurance:\s*([^\n,]+)/i) || 'Standard Health Insurance';
+    const policyNumber = extractPattern(/Policy:\s*([A-Z0-9-]+)/i) || 'POL-UNSPECIFIED';
+    const groupNumber = extractPattern(/Group:\s*([A-Z0-9-]+)/i) || 'GRP-UNSPECIFIED';
 
     // 6. Emergency Contact
-    const emergencyName = extractPattern(/Emergency Contact:\s*([^\n,]+)/i) || 'Thomas Vance';
-    const emergencyRel = extractPattern(/Relationship:\s*([^\n,]+)/i) || 'Son';
-    const emergencyPhone = extractPattern(/Emergency Phone:\s*([\d()+\s-]{10,20})/i) || '+1 (555) 876-5432';
+    const emergencyName = extractPattern(/Emergency Contact:\s*([^\n,]+)/i) || 'N/A';
+    const emergencyRel = extractPattern(/Relationship:\s*([^\n,]+)/i) || 'Relative';
+    const emergencyPhone = extractPattern(/Emergency Phone:\s*([\d()+\s-]{10,20})/i) || 'N/A';
 
     // 7. Blood Group
     const bloodGroup = extractPattern(/Blood Group:\s*([A-BO+-]+)/i) || 'O+';
 
     // 8. Known Allergies
     let allergiesText = extractPattern(/Allergies:\s*([^\n]+)/i);
-    let knownAllergies = allergiesText ? allergiesText.split(/[,;]/).map(s => s.trim()) : ['Penicillin (Anaphylaxis)', 'Sulfa drugs'];
+    let knownAllergies = allergiesText ? allergiesText.split(/[,;]/).map(s => s.trim()) : ['None known'];
 
     // 9. Medical History
     let historyText = extractPattern(/Medical History:\s*([^\n]+)/i) || extractPattern(/Conditions:\s*([^\n]+)/i);
-    let medicalHistory = historyText ? historyText.split(/[,;]/).map(s => s.trim()) : ['Type 2 Diabetes Mellitus', 'Essential Hypertension', 'Community-Acquired Pneumonia'];
+    let medicalHistory = historyText ? historyText.split(/[,;]/).map(s => s.trim()) : ['None documented'];
 
     // 10. Current Medication
     let medsText = extractPattern(/Current Medication:\s*([^\n]+)/i) || extractPattern(/Medications:\s*([^\n]+)/i);
-    let currentMedications = medsText ? medsText.split(/[,;]/).map(s => s.trim()) : ['Metformin 500mg BID', 'Lisinopril 10mg Daily', 'Levofloxacin 750mg QD'];
+    let currentMedications = medsText ? medsText.split(/[,;]/).map(s => s.trim()) : ['None documented'];
 
     // 11. Previous Surgeries
     let surgText = extractPattern(/Surgeries:\s*([^\n]+)/i) || extractPattern(/Past Surgeries:\s*([^\n]+)/i);
-    let previousSurgeries = surgText ? surgText.split(/[,;]/).map(s => s.trim()) : ['Appendectomy (2004)', 'Total Knee Replacement (2019)'];
+    let previousSurgeries = surgText ? surgText.split(/[,;]/).map(s => s.trim()) : ['None documented'];
 
     // 12. Family History
     let famText = extractPattern(/Family History:\s*([^\n]+)/i);
-    let familyHistory = famText ? famText.split(/[,;]/).map(s => s.trim()) : ['Mother: Type 2 Diabetes', 'Father: Coronary Artery Disease'];
+    let familyHistory = famText ? famText.split(/[,;]/).map(s => s.trim()) : ['None documented'];
 
     // 13. Vitals
-    const bpSystolic = parseInt(extractPattern(/BP Systolic:\s*(\d+)/i) || '138', 10);
-    const bpDiastolic = parseInt(extractPattern(/BP Diastolic:\s*(\d+)/i) || '84', 10);
-    const heartRate = parseInt(extractPattern(/Heart Rate:\s*(\d+)/i) || '88', 10);
-    const respRate = parseInt(extractPattern(/Resp Rate:\s*(\d+)/i) || '22', 10);
-    const temperature = parseFloat(extractPattern(/Temperature:\s*([\d.]+)/i) || '101.2');
-    const spO2 = parseInt(extractPattern(/SpO2:\s*(\d+)/i) || '94', 10);
+    const bpSystolic = parseInt(extractPattern(/BP Systolic:\s*(\d+)/i) || '120', 10);
+    const bpDiastolic = parseInt(extractPattern(/BP Diastolic:\s*(\d+)/i) || '80', 10);
+    const heartRate = parseInt(extractPattern(/Heart Rate:\s*(\d+)/i) || '72', 10);
+    const respRate = parseInt(extractPattern(/Resp Rate:\s*(\d+)/i) || '16', 10);
+    const temperature = parseFloat(extractPattern(/Temperature:\s*([\d.]+)/i) || '98.6');
+    const spO2 = parseInt(extractPattern(/SpO2:\s*(\d+)/i) || '98', 10);
 
     // 14. Risk Factors & Category
-    const riskFactors = ['Penicillin Anaphylaxis Alert', 'Diabetic Comorbidity', 'Fever & Hypoxemia'];
+    const riskFactors = ['Initial Evaluation'];
     let riskCategory: 'CRITICAL RISK' | 'HIGH RISK' | 'MODERATE RISK' | 'LOW RISK' = 'HIGH RISK';
     if (spO2 < 92 || temperature > 102) {
       riskCategory = 'CRITICAL RISK';
