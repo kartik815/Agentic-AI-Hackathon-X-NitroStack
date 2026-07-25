@@ -1,130 +1,110 @@
-import { NextResponse } from 'next/server';
+import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
 
 export async function POST(request: Request) {
-  const deepgramKey = process.env.DEEPGRAM_API_KEY || process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY;
+  const apiKey = process.env.DEEPGRAM_API_KEY || process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY;
 
-  if (!deepgramKey || deepgramKey.trim() === '') {
-    return NextResponse.json(
-      {
+  if (!apiKey || apiKey.trim() === '') {
+    return new Response(
+      JSON.stringify({
         status: 'error',
-        message: 'DEEPGRAM_API_KEY is not defined in server environment variables. Please add DEEPGRAM_API_KEY to your .env.local file.'
-      },
-      { status: 400 }
+        message: 'DEEPGRAM_API_KEY is not defined in server environment variables (.env.local).'
+      }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
 
-  // Set up Server-Sent Events (SSE) Stream to browser
+  // Instantiate Official Deepgram Node.js SDK Client
+  const deepgram = createClient(apiKey.trim());
+
+  // Setup Official Deepgram SDK Live Transcription Session
+  const dgConnection = deepgram.listen.live({
+    model: 'nova-2-medical',
+    smart_format: true,
+    diarize: true,
+    interim_results: true,
+    punctuate: true,
+    encoding: 'webm'
+  });
+
   const encoder = new TextEncoder();
+
   const stream = new ReadableStream({
     async start(controller) {
       const sendEvent = (data: any) => {
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
         } catch (e) {
-          console.warn('SSE Controller enqueue notice:', e);
+          // Stream controller closed
         }
       };
 
-      try {
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2-medical&smart_format=true&diarize=true&interim_results=true`;
-        console.log('🌐 [Server STT Proxy Opening Deepgram WebSocket]:', wsUrl);
+      // Bind Official Deepgram SDK Event Listeners
+      dgConnection.on(LiveTranscriptionEvents.Open, () => {
+        console.log('✅ [Official Deepgram SDK Live Connection Opened]');
+        sendEvent({ type: 'status', message: 'Official Deepgram SDK Connected' });
+      });
 
-        sendEvent({ type: 'status', serverStatus: 'connecting', message: 'Server opening Deepgram WebSocket...' });
+      dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
+        const channel = data.channel;
+        const transcript = channel?.alternatives?.[0]?.transcript;
 
-        const ws = new WebSocket(wsUrl, ['token', deepgramKey.trim()]);
-        let isWsOpen = false;
-        const pendingChunks: Uint8Array[] = [];
+        if (transcript && transcript.trim().length > 0) {
+          const words = channel?.alternatives?.[0]?.words || [];
+          const speakerId = words[0]?.speaker !== undefined ? words[0].speaker : 0;
+          const speakerLabel = speakerId === 0 ? 'Doctor' : 'Patient';
+          const isFinal = Boolean(data.is_final);
+          const confidence = channel?.alternatives?.[0]?.confidence || 0.95;
 
-        ws.onopen = () => {
-          isWsOpen = true;
-          console.log('✅ [Server STT Proxy Deepgram WebSocket Connected]');
-          sendEvent({ type: 'status', serverStatus: 'connected', message: 'Server connected to Deepgram WebSocket' });
+          sendEvent({
+            type: 'transcript',
+            text: transcript.trim(),
+            isFinal,
+            speaker: speakerLabel,
+            confidence: parseFloat(confidence.toFixed(2)),
+            rawJsonSnippet: JSON.stringify(data).substring(0, 150)
+          });
+        }
+      });
 
-          // Flush any buffered chunks received before ws.onopen completed
-          while (pendingChunks.length > 0) {
-            const chunk = pendingChunks.shift();
-            if (chunk && ws.readyState === WebSocket.OPEN) {
-              ws.send(chunk);
+      dgConnection.on(LiveTranscriptionEvents.Error, (err) => {
+        console.error('❌ [Official Deepgram SDK Live Error]:', err);
+        sendEvent({ type: 'error', message: err?.message || 'Deepgram Live SDK Connection Error' });
+      });
+
+      dgConnection.on(LiveTranscriptionEvents.Close, (event) => {
+        console.log('🚪 [Official Deepgram SDK Live Connection Closed]:', event);
+        sendEvent({ type: 'close', message: 'Deepgram Live Connection Closed' });
+      });
+
+      // Forward audio stream chunks from browser to official Deepgram SDK
+      if (request.body) {
+        const reader = request.body.getReader();
+        let packetsCount = 0;
+        let bytesCount = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          if (value && value.byteLength > 0) {
+            packetsCount += 1;
+            bytesCount += value.byteLength;
+
+            // Send chunk via official Deepgram SDK live client!
+            try {
+              dgConnection.send(value.buffer as ArrayBuffer);
+            } catch (err) {
+              console.warn('Deepgram SDK send notice:', err);
             }
-          }
-        };
 
-        ws.onmessage = (event) => {
-          try {
-            const received = JSON.parse(event.data.toString());
-            const channel = received.channel;
-            const transcript = channel?.alternatives?.[0]?.transcript;
-
-            if (transcript && transcript.trim().length > 0) {
-              const words = channel?.alternatives?.[0]?.words || [];
-              const speakerId = words[0]?.speaker !== undefined ? words[0].speaker : 0;
-              const speakerLabel = speakerId === 0 ? 'Doctor' : 'Patient';
-              const isFinal = Boolean(received.is_final);
-              const confidence = channel?.alternatives?.[0]?.confidence || 0.95;
-
-              sendEvent({
-                type: 'transcript',
-                text: transcript.trim(),
-                isFinal,
-                speaker: speakerLabel,
-                confidence: parseFloat(confidence.toFixed(2)),
-                rawJsonSnippet: event.data.toString().substring(0, 150)
-              });
-            }
-          } catch (err: any) {
-            console.error('Error parsing Deepgram WS message:', err);
-          }
-        };
-
-        ws.onerror = (error: any) => {
-          console.error('❌ [Server STT Proxy WebSocket Error]:', error);
-          sendEvent({ type: 'error', message: 'Server-side Deepgram WebSocket error. Check API key validity.' });
-        };
-
-        ws.onclose = (event) => {
-          console.log('🚪 [Server STT Proxy WebSocket Closed]: Code=', event.code, 'Reason=', event.reason);
-          sendEvent({ type: 'close', code: event.code, reason: event.reason || 'Server Deepgram WS Closed' });
-        };
-
-        // Read incoming browser audio stream chunks from request.body
-        if (request.body) {
-          const reader = request.body.getReader();
-          let packetsCount = 0;
-          let bytesCount = 0;
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            if (value && value.byteLength > 0) {
-              packetsCount += 1;
-              bytesCount += value.byteLength;
-
-              if (isWsOpen && ws.readyState === WebSocket.OPEN) {
-                // Flush pending queue first
-                while (pendingChunks.length > 0) {
-                  const pending = pendingChunks.shift();
-                  if (pending) ws.send(pending);
-                }
-                ws.send(value);
-              } else {
-                pendingChunks.push(value);
-              }
-
-              sendEvent({
-                type: 'audio_stats',
-                packetsCount,
-                bytesCount,
-                lastChunkSize: value.byteLength
-              });
-            }
+            sendEvent({
+              type: 'audio_stats',
+              packetsCount,
+              bytesCount,
+              lastChunkSize: value.byteLength
+            });
           }
         }
-      } catch (err: any) {
-        console.error('❌ [Server STT Proxy Fatal Exception]:', err);
-        sendEvent({ type: 'error', message: err.message || 'Server STT proxy exception' });
-      } finally {
-        controller.close();
       }
     }
   });
