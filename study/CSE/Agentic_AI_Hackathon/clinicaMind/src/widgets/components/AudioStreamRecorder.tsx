@@ -37,6 +37,7 @@ export function AudioStreamRecorder({
     wsCloseCode: number | null;
     wsCloseReason: string;
     mediaRecorderState: 'inactive' | 'recording' | 'paused';
+    recorderMimeType: string;
     recorderStartTimestamp: string | null;
     firstChunkSize: number | null;
     totalChunksSent: number;
@@ -52,6 +53,7 @@ export function AudioStreamRecorder({
     wsCloseCode: null,
     wsCloseReason: '',
     mediaRecorderState: 'inactive',
+    recorderMimeType: 'N/A',
     recorderStartTimestamp: null,
     firstChunkSize: null,
     totalChunksSent: 0,
@@ -71,6 +73,8 @@ export function AudioStreamRecorder({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Audio Chunk Queue to buffer WebM container header until WebSocket is OPEN
+  const chunkQueueRef = useRef<Blob[]>([]);
   const packetsSentRef = useRef<number>(0);
   const totalBytesSentRef = useRef<number>(0);
 
@@ -134,7 +138,29 @@ export function AudioStreamRecorder({
     renderFrame();
   };
 
-  // Start MediaRecorder IMMEDIATELY when microphone opens (Independent of WebSocket status)
+  // Helper to send blob as ArrayBuffer to WebSocket
+  const sendBlobToWs = (blob: Blob, ws: WebSocket) => {
+    blob.arrayBuffer().then((buffer) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        // Log first 5 bytes for transport verification
+        const first5 = new Uint8Array(buffer.slice(0, 5));
+        const hexHeader = Array.from(first5).map((b) => '0x' + b.toString(16).padStart(2, '0')).join(' ');
+        console.log(`📡 [Sending ArrayBuffer Frame]: size=${buffer.byteLength} bytes, header=[${hexHeader}]`);
+
+        ws.send(buffer);
+        packetsSentRef.current += 1;
+        totalBytesSentRef.current += buffer.byteLength;
+
+        setDiagnostics((prev) => ({
+          ...prev,
+          totalChunksSent: packetsSentRef.current,
+          totalBytesSent: totalBytesSentRef.current
+        }));
+      }
+    }).catch((err) => console.error('ArrayBuffer conversion error:', err));
+  };
+
+  // Start MediaRecorder & Buffer Chunks
   const startMediaRecorder = (stream: MediaStream) => {
     try {
       let mimeType = 'audio/webm';
@@ -147,31 +173,37 @@ export function AudioStreamRecorder({
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       const startTime = new Date().toLocaleTimeString();
 
+      chunkQueueRef.current = [];
       packetsSentRef.current = 0;
       totalBytesSentRef.current = 0;
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
+          // Explicit Console Logs as requested
+          console.log('mediaRecorder.mimeType:', mediaRecorder.mimeType);
+          console.log('event.data.type:', event.data.type);
+          console.log('event.data.size:', event.data.size);
+
           const chunkSize = event.data.size;
 
-          setDiagnostics((prev) => {
-            const isFirst = prev.firstChunkSize === null;
-            const updatedSent = prev.totalChunksSent + 1;
-            const updatedBytes = prev.totalBytesSent + chunkSize;
+          setDiagnostics((prev) => ({
+            ...prev,
+            firstChunkSize: prev.firstChunkSize === null ? chunkSize : prev.firstChunkSize,
+            recorderMimeType: mediaRecorder.mimeType
+          }));
 
-            return {
-              ...prev,
-              firstChunkSize: isFirst ? chunkSize : prev.firstChunkSize,
-              totalChunksSent: updatedSent,
-              totalBytesSent: updatedBytes
-            };
-          });
-
-          // Transmit audio chunk to Deepgram WebSocket if OPEN
-          if (deepgramWsRef.current && deepgramWsRef.current.readyState === WebSocket.OPEN) {
-            deepgramWsRef.current.send(event.data);
-            packetsSentRef.current += 1;
-            totalBytesSentRef.current += chunkSize;
+          const ws = deepgramWsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            // Flush any buffered chunks first (ensuring WebM header is transmitted)
+            while (chunkQueueRef.current.length > 0) {
+              const buffered = chunkQueueRef.current.shift();
+              if (buffered) sendBlobToWs(buffered, ws);
+            }
+            sendBlobToWs(event.data, ws);
+          } else {
+            // Buffer chunk until WebSocket opens so the WebM header is not lost!
+            console.log(`📦 [Buffering Audio Chunk while WS Connecting]: size=${chunkSize} bytes`);
+            chunkQueueRef.current.push(event.data);
           }
         }
       };
@@ -182,7 +214,8 @@ export function AudioStreamRecorder({
       setDiagnostics((prev) => ({
         ...prev,
         mediaRecorderState: 'recording',
-        recorderStartTimestamp: startTime
+        recorderStartTimestamp: startTime,
+        recorderMimeType: mimeType
       }));
 
       console.log(`🎙️ [MediaRecorder Started]: State=${mediaRecorder.state}, MimeType=${mimeType}, Time=${startTime}`);
@@ -229,13 +262,20 @@ export function AudioStreamRecorder({
       const ws = new WebSocket(wsUrl, ['token', deepgramKey!.trim()]);
 
       ws.onopen = () => {
-        console.log('✅ [Deepgram WebSocket Opened]');
+        console.log('✅ [Deepgram WebSocket Opened Successfully]');
         setDiagnostics((prev) => ({
           ...prev,
           wsConnecting: false,
           wsOpened: true,
           wsAuthResult: 'Authenticated (Token Subprotocol)'
         }));
+
+        // IMMEDIATELY FLUSH BUFFERED CHUNKS INCLUDING WEBM HEADER!
+        console.log(`🚀 [Flushing ${chunkQueueRef.current.length} Buffered Audio Chunks (Including WebM EBML Header)...]`);
+        while (chunkQueueRef.current.length > 0) {
+          const chunk = chunkQueueRef.current.shift();
+          if (chunk) sendBlobToWs(chunk, ws);
+        }
       };
 
       ws.onmessage = (message) => {
@@ -293,7 +333,7 @@ export function AudioStreamRecorder({
           wsOpened: false,
           wsConnecting: false,
           wsCloseCode: event.code,
-          wsCloseReason: event.reason || (event.code === 1006 ? 'Abnormal Close (401 Unauthorized / Invalid Key)' : 'Connection Closed')
+          wsCloseReason: event.reason || (event.code === 1011 ? 'Deepgram 1011: Audio Format / Header Missing' : event.code === 1006 ? 'Abnormal Close (401 Unauthorized / Invalid Key)' : 'Connection Closed')
         }));
       };
 
@@ -410,7 +450,7 @@ export function AudioStreamRecorder({
         // 1. Setup Web Audio API Analyser & Canvas Visualizer
         setupAudioContext(stream);
 
-        // 2. IMMEDIATELY start MediaRecorder on stream open!
+        // 2. IMMEDIATELY start MediaRecorder on stream open (buffers early WebM header chunks!)
         startMediaRecorder(stream);
 
         // 3. Initiate STT Engine (Deepgram WebSocket + Web Speech API fallback)
@@ -577,9 +617,9 @@ export function AudioStreamRecorder({
         <div className="flex items-center justify-between border-b border-slate-800 pb-2">
           <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs">
             <Terminal size={14} />
-            <span>STT Audio Pipeline Real-Time Diagnostics:</span>
+            <span>STT Transport Layer Real-Time Diagnostics:</span>
           </div>
-          <span className="text-[10px] text-slate-400">Deepgram & MediaRecorder Engine</span>
+          <span className="text-[10px] text-slate-400">Deepgram ArrayBuffer Transport</span>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
@@ -598,7 +638,7 @@ export function AudioStreamRecorder({
             <span className={`font-bold block mt-0.5 ${diagnostics.mediaRecorderState === 'recording' ? 'text-emerald-400' : 'text-amber-400'}`}>
               {diagnostics.mediaRecorderState.toUpperCase()}
             </span>
-            <span className="text-[9px] text-slate-500 block">Started: {diagnostics.recorderStartTimestamp || 'N/A'}</span>
+            <span className="text-[9px] font-mono text-slate-400 block truncate">{diagnostics.recorderMimeType}</span>
           </div>
 
           {/* WebSocket Status */}
@@ -625,7 +665,7 @@ export function AudioStreamRecorder({
           <div>
             <span>First Chunk: <strong className="text-slate-200">{diagnostics.firstChunkSize ? `${diagnostics.firstChunkSize} bytes` : 'Waiting...'}</strong></span>
             <span className="mx-2">•</span>
-            <span>Audio Chunks Sent: <strong className="text-slate-200">{diagnostics.totalChunksSent} ({diagnostics.totalBytesSent} bytes)</strong></span>
+            <span>ArrayBuffer Packets Sent: <strong className="text-slate-200">{diagnostics.totalChunksSent} ({diagnostics.totalBytesSent} bytes)</strong></span>
           </div>
           {diagnostics.wsCloseCode && (
             <span className="text-amber-400">WS Close Code: {diagnostics.wsCloseCode} ({diagnostics.wsCloseReason})</span>
@@ -636,7 +676,7 @@ export function AudioStreamRecorder({
         {diagnostics.failureReason && (
           <div className="p-2.5 bg-red-950/60 border border-red-800 rounded-lg text-red-300 text-[11px] font-sans flex items-start gap-2">
             <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
-            <span><strong>Pipeline Diagnostic Notice:</strong> {diagnostics.failureReason}</span>
+            <span><strong>Transport Diagnostic Notice:</strong> {diagnostics.failureReason}</span>
           </div>
         )}
       </div>
