@@ -5,6 +5,8 @@ import { ResearchService } from '../../../../modules/research/research.service';
 import { GapAnalysisService } from '../../../../modules/gap-analysis/gap-analysis.service';
 import { ReportService } from '../../../../modules/report/report.service';
 import { LlmProviderService } from '../../../../modules/supervisor/llm-provider.service';
+import { SupervisorService } from '../../../../modules/supervisor/supervisor.service';
+import { AgentRegistryService } from '../../../../modules/supervisor/agent-registry';
 import { CopilotOrchestratorService } from '../../../../modules/supervisor/copilot-orchestrator.service';
 
 const historyService = new HistoryService();
@@ -13,13 +15,19 @@ const researchService = new ResearchService();
 const gapAnalysisService = new GapAnalysisService();
 const reportService = new ReportService();
 const llmProviderService = new LlmProviderService();
+const agentRegistry = new AgentRegistryService(historyService, medicationService, researchService, gapAnalysisService, reportService);
 
-const orchestrator = new CopilotOrchestratorService(
+const supervisorService = new SupervisorService(
   historyService,
   medicationService,
   researchService,
   gapAnalysisService,
   reportService,
+  agentRegistry
+);
+
+const orchestrator = new CopilotOrchestratorService(
+  supervisorService,
   llmProviderService
 );
 

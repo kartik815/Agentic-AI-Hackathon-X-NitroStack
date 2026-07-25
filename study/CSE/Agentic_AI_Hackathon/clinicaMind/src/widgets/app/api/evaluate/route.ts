@@ -5,19 +5,22 @@ import { MedicationService } from '../../../../modules/medication/medication.ser
 import { ResearchService } from '../../../../modules/research/research.service';
 import { GapAnalysisService } from '../../../../modules/gap-analysis/gap-analysis.service';
 import { ReportService } from '../../../../modules/report/report.service';
+import { AgentRegistryService } from '../../../../modules/supervisor/agent-registry';
 
 const historyService = new HistoryService();
 const medicationService = new MedicationService();
 const researchService = new ResearchService();
 const gapAnalysisService = new GapAnalysisService();
 const reportService = new ReportService();
+const agentRegistry = new AgentRegistryService(historyService, medicationService, researchService, gapAnalysisService, reportService);
 
 const supervisorService = new SupervisorService(
   historyService,
   medicationService,
   researchService,
   gapAnalysisService,
-  reportService
+  reportService,
+  agentRegistry
 );
 
 export async function POST(request: Request) {

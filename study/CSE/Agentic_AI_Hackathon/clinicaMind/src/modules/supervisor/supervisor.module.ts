@@ -8,6 +8,7 @@ import { SupervisorService } from './supervisor.service';
 import { SupervisorController } from './supervisor.controller';
 import { LlmProviderService } from './llm-provider.service';
 import { CopilotOrchestratorService } from './copilot-orchestrator.service';
+import { AgentRegistryService } from './agent-registry';
 
 @Module({
   name: 'supervisor',
@@ -20,7 +21,7 @@ import { CopilotOrchestratorService } from './copilot-orchestrator.service';
     ReportModule
   ],
   controllers: [SupervisorController],
-  providers: [SupervisorService, LlmProviderService, CopilotOrchestratorService],
-  exports: [SupervisorService, LlmProviderService, CopilotOrchestratorService]
+  providers: [SupervisorService, LlmProviderService, CopilotOrchestratorService, AgentRegistryService],
+  exports: [SupervisorService, LlmProviderService, CopilotOrchestratorService, AgentRegistryService]
 })
 export class SupervisorModule {}
