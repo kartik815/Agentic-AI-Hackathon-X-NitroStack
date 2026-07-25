@@ -72,7 +72,7 @@ export function HistoryNode({ data }: { data: any }) {
       <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-xs space-y-1.5">
         <div className="flex items-center justify-between">
           <span className="font-bold text-slate-900">{history.name || 'Active Patient'} ({history.age || '--'}y)</span>
-          <span className="text-[10px] font-mono text-slate-500">ID: {history.patientId || '1234'}</span>
+          <span className="text-[10px] font-mono text-slate-500">ID: {history.patientId || 'N/A'}</span>
         </div>
         {history.allergies && history.allergies.length > 0 && (
           <div className="bg-red-50 text-red-700 p-1.5 rounded-lg border border-red-200 text-[11px] font-bold flex items-center gap-1">

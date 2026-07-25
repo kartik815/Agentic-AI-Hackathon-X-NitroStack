@@ -217,17 +217,24 @@ export default function PatientsPage() {
                 <Inbox size={24} />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">No Registered Patients in Database</h3>
+                <h3 className="text-base font-bold text-slate-900">No patients available.</h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                  Forward a patient package to the doctor inbox or click <strong>⚡ Simulate Inbound Patient Email</strong> above to test the autonomous intake workflow.
+                  Connect Gmail to import a patient or create one manually later.
                 </p>
               </div>
               <div className="flex justify-center gap-3 pt-2">
-                <button
-                  onClick={handleSimulateSampleEmail}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition"
+                <Link
+                  href="/settings/integrations/gmail"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-xs flex items-center gap-2"
                 >
-                  ⚡ Simulate Patient Email Package Intake
+                  <Sparkles size={14} />
+                  <span>Connect Gmail</span>
+                </Link>
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition border border-slate-200"
+                >
+                  + Create Patient Manually
                 </button>
               </div>
             </div>
