@@ -73,7 +73,7 @@ export class ResearchService {
       const searchRes = await fetch(esearchUrl);
       if (!searchRes.ok) return [];
 
-      const searchData = await searchRes.json();
+      const searchData = (await searchRes.json()) as any;
       const idList: string[] = searchData?.esearchresult?.idlist || [];
       if (idList.length === 0) return [];
 
@@ -81,7 +81,7 @@ export class ResearchService {
       const summaryRes = await fetch(esummaryUrl);
       if (!summaryRes.ok) return [];
 
-      const summaryData = await summaryRes.json();
+      const summaryData = (await summaryRes.json()) as any;
       const resultObj = summaryData?.result || {};
 
       const articles: PubMedArticle[] = [];

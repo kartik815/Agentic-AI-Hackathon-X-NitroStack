@@ -5,6 +5,26 @@ import { ResearchService } from '../research/research.service';
 import { GapAnalysisService } from '../gap-analysis/gap-analysis.service';
 import { ReportService } from '../report/report.service';
 
+export interface SupervisorInput {
+  doctorQuestion?: string;
+  patientId?: string;
+  transcript?: string;
+  consultationContext?: any;
+}
+
+export interface ExecutionPlan {
+  supervisorAgent: string;
+  patientId: string;
+  doctorQuestion?: string;
+  requiredMcpTools: string[];
+  toolInvocations: Array<{
+    toolName: string;
+    purpose: string;
+    status: 'PLANNED' | 'EXECUTED';
+  }>;
+  executionStrategy: string;
+}
+
 export interface CanvasNode {
   id: string;
   type: 'speech' | 'supervisor' | 'history' | 'medication' | 'research' | 'gap' | 'report';
@@ -29,6 +49,7 @@ export interface OrchestrationResult {
   transcript: string;
   symptomsExtracted: string[];
   patientId: string;
+  executionPlan: ExecutionPlan;
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   summary: any;
@@ -46,7 +67,70 @@ export class SupervisorService {
     private readonly reportService: ReportService
   ) {}
 
+  /**
+   * Supervisor Execution Planner: Accepts Doctor Question, Patient ID, Transcript, and Consultation Context.
+   * Determines which MCP tools are required and builds a structured Execution Plan without calling external LLMs.
+   */
+  async planExecution(input: SupervisorInput): Promise<ExecutionPlan> {
+    const patientId = input.patientId || '1234';
+    const transcript = input.transcript || '';
+    const question = input.doctorQuestion || '';
+
+    const requiredMcpTools: string[] = ['retrieve_patient', 'retrieve_visit_history', 'analyze_history'];
+
+    const textToAnalyze = `${transcript} ${question}`.toLowerCase();
+
+    if (textToAnalyze.includes('medication') || textToAnalyze.includes('drug') || textToAnalyze.includes('prescrib') || textToAnalyze.includes('ibuprofen') || textToAnalyze.includes('amoxicillin')) {
+      requiredMcpTools.push('medication_review', 'allergy_check');
+    } else {
+      requiredMcpTools.push('medication_review');
+    }
+
+    if (textToAnalyze.includes('risk') || textToAnalyze.includes('readmission') || textToAnalyze.includes('fever') || textToAnalyze.includes('chest pain')) {
+      requiredMcpTools.push('risk_assessment');
+    }
+
+    if (textToAnalyze.includes('cough') || textToAnalyze.includes('chest pain') || textToAnalyze.includes('fever') || textToAnalyze.includes('symptom')) {
+      requiredMcpTools.push('differential_diagnosis', 'clinical_guidelines');
+    }
+
+    requiredMcpTools.push('search_research', 'generate_report');
+
+    const toolInvocations = requiredMcpTools.map(toolName => ({
+      toolName,
+      purpose: this.getToolPurpose(toolName),
+      status: 'PLANNED' as const
+    }));
+
+    return {
+      supervisorAgent: 'ClinicaMind Supervisor Orchestrator v1.0',
+      patientId,
+      doctorQuestion: input.doctorQuestion,
+      requiredMcpTools,
+      toolInvocations,
+      executionStrategy: 'Sequential multi-tool MCP pipeline with evidence synthesis'
+    };
+  }
+
+  private getToolPurpose(toolName: string): string {
+    const purposes: Record<string, string> = {
+      retrieve_patient: 'Fetch baseline patient EHR record and demographic vitals.',
+      retrieve_visit_history: 'Fetch timeline of prior encounters.',
+      analyze_history: 'Analyze past chronic conditions and comorbidities.',
+      medication_review: 'Evaluate drug interactions and dosage safety.',
+      allergy_check: 'Cross-reference prescribed drugs with allergy history.',
+      risk_assessment: 'Calculate 30-day readmission and severity risk scores.',
+      differential_diagnosis: 'Formulate ranked differential diagnoses list.',
+      clinical_guidelines: 'Query evidence-based practice guidelines (ATS/IDSA, ACC/AHA).',
+      search_research: 'Query PubMed medical literature database.',
+      generate_report: 'Compile SOAP clinical consultation note.'
+    };
+    return purposes[toolName] || 'Execute clinical helper tool.';
+  }
+
   async orchestrateConsultation(transcript: string, patientId: string = '1234'): Promise<OrchestrationResult> {
+    const plan = await this.planExecution({ transcript, patientId });
+
     const tLower = transcript.toLowerCase();
     const symptoms: string[] = [];
 
@@ -108,14 +192,7 @@ export class SupervisorService {
           agentName: 'Supervisor Agent',
           status: 'ACTIVE',
           content: {
-            plan: [
-              `Extracted ${symptoms.length} symptoms: [${symptoms.join(', ')}]`,
-              `Triggered History Lookup for Patient ID ${patientId}`,
-              `Dispatched Medication Safety & Interaction Check`,
-              `Querying PubMed E-utilities for latest guidelines`,
-              `Executing Gap Analysis for unasked risk factors`,
-              `Synthesizing Evidence Briefing`
-            ]
+            plan: plan.requiredMcpTools.map(t => `Invoking MCP Tool: ${t} (${this.getToolPurpose(t)})`)
           }
         }
       },
@@ -190,6 +267,7 @@ export class SupervisorService {
       transcript,
       symptomsExtracted: symptoms,
       patientId,
+      executionPlan: plan,
       nodes,
       edges,
       summary

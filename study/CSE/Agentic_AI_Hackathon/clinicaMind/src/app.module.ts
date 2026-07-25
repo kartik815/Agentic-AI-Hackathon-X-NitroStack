@@ -1,5 +1,10 @@
 import { McpApp, Module, ConfigModule } from '@nitrostack/core';
 import { SupervisorModule } from './modules/supervisor/supervisor.module';
+import { ToolsModule } from './modules/tools/tools.module';
+import { ResourcesModule } from './modules/resources/resources.module';
+import { PromptsModule } from './modules/prompts/prompts.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { HealthModule } from './modules/health/health.module';
 
 /**
  * Root Application Module for ClinicaMind
@@ -21,7 +26,12 @@ import { SupervisorModule } from './modules/supervisor/supervisor.module';
   description: 'AI Clinical Intelligence & Multi-Agent Decision Support Workspace',
   imports: [
     ConfigModule.forRoot(),
-    SupervisorModule
+    SupervisorModule,
+    ToolsModule,
+    ResourcesModule,
+    PromptsModule,
+    TasksModule,
+    HealthModule
   ]
 })
 export class AppModule {}

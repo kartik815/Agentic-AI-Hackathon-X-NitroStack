@@ -62,7 +62,7 @@ export class LlmProviderService {
         throw new Error(`Gemini API Error (${response.status}): ${errText}`);
       }
 
-      const json = await response.json();
+      const json = (await response.json()) as any;
       const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) {
         throw new Error(`Gemini API returned an empty completion structure.`);
@@ -97,7 +97,7 @@ export class LlmProviderService {
         throw new Error(`OpenAI API Error (${response.status}): ${errText}`);
       }
 
-      const json = await response.json();
+      const json = (await response.json()) as any;
       const text = json?.choices?.[0]?.message?.content;
       return { text: text || 'No completion returned.', provider: 'OpenAI', model: process.env.OPENAI_MODEL || 'gpt-4o' };
     }
@@ -133,7 +133,7 @@ export class LlmProviderService {
         throw new Error(`Anthropic API Error (${response.status}): ${errText}`);
       }
 
-      const json = await response.json();
+      const json = (await response.json()) as any;
       const text = json?.content?.[0]?.text;
       return { text: text || 'No completion returned.', provider: 'Anthropic Claude', model: 'claude-3-5-sonnet' };
     }
@@ -159,7 +159,7 @@ export class LlmProviderService {
         throw new Error(`Ollama Error (${response.status}): ${errText}`);
       }
 
-      const json = await response.json();
+      const json = (await response.json()) as any;
       return { text: json?.response || '', provider: 'Local Ollama', model: process.env.OLLAMA_MODEL || 'llama3' };
     }
 

@@ -10,12 +10,35 @@ function clinicalWidget(route: string) {
 
 const EvaluateConsultationSchema = z.object({
   transcript: z.string().describe('Live consultation transcript text spoken by doctor or patient'),
-  patientId: z.string().optional().default('1234').describe('Target patient EHR ID')
+  patientId: z.string().optional().default('1234').describe('Target patient EHR ID'),
+  doctorQuestion: z.string().optional().describe('Doctor question or decision query')
+});
+
+const PlanExecutionSchema = z.object({
+  doctorQuestion: z.string().optional().describe('Doctor query or inquiry'),
+  patientId: z.string().optional().default('1234').describe('Target patient EHR ID'),
+  transcript: z.string().optional().describe('Live consultation speech transcript'),
+  consultationContext: z.record(z.any()).optional().describe('Additional clinical context object')
 });
 
 @Injectable({ deps: [SupervisorService] })
 export class SupervisorController {
   constructor(private readonly supervisorService: SupervisorService) {}
+
+  @Tool({
+    name: 'plan_consultation_execution',
+    description: 'Supervisor Agent planning tool. Accepts doctor questions, patient ID, transcript, and context to produce an MCP execution plan of required tools.',
+    inputSchema: PlanExecutionSchema
+  })
+  async planExecution(args: z.infer<typeof PlanExecutionSchema>, ctx: ExecutionContext) {
+    ctx.logger.info(`[Supervisor Agent] Planning execution for patient ${args.patientId}...`);
+    const plan = await this.supervisorService.planExecution(args);
+    return {
+      status: 'success',
+      agent: 'Supervisor Agent',
+      executionPlan: plan
+    };
+  }
 
   @Tool({
     name: 'evaluate_consultation',

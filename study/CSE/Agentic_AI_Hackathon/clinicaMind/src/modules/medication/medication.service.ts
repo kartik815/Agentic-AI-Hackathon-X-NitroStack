@@ -44,7 +44,7 @@ export class MedicationService {
       const url = `https://rxnav.nlm.nih.gov/REST/rxcui.json?name=${encodeURIComponent(drugName)}`;
       const res = await fetch(url);
       if (res.ok) {
-        const json = await res.json();
+        const json = (await res.json()) as any;
         const rxcui = json?.idGroup?.rxnormId?.[0];
         return rxcui || null;
       }
@@ -61,7 +61,7 @@ export class MedicationService {
       const url = `https://api.fda.gov/drug/label.json?search=${queryParam}&limit=1`;
       const res = await fetch(url);
       if (res.ok) {
-        const json = await res.json();
+        const json = (await res.json()) as any;
         const interactions = json?.results?.[0]?.drug_interactions?.[0];
         return interactions ? interactions.substring(0, 300) + '...' : null;
       }
