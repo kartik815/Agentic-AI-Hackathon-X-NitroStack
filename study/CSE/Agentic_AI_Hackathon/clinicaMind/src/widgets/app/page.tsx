@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Activity, Stethoscope } from 'lucide-react';
+import { Activity, Stethoscope, UserPlus } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { RightInfoPanel } from '../components/RightInfoPanel';
 import { ConsultationHeroCard } from '../components/ConsultationHeroCard';
@@ -18,38 +18,35 @@ import { ResearchNode } from '../components/canvas/ResearchNode';
 import { GapNode } from '../components/canvas/GapNode';
 import { ReportNode } from '../components/canvas/ReportNode';
 
-const PATIENT_TRIAGE_CASES = [
-  {
-    id: 'case-3-pneumonia',
-    title: 'Eleanor Vance (70yo / EHR 1234)',
-    patientId: '1234',
-    badge: 'CRITICAL RISK',
-    badgeClass: 'badge-critical'
-  },
-  {
-    id: 'case-2-warfarin',
-    title: 'Robert Miller (60yo / EHR 5678)',
-    patientId: '5678',
-    badge: 'HIGH RISK',
-    badgeClass: 'badge-warning'
-  },
-  {
-    id: 'case-1-cold',
-    title: 'Sarah Jenkins (25yo / EHR 9012)',
-    patientId: '9012',
-    badge: 'LOW RISK',
-    badgeClass: 'badge-normal'
-  }
-];
-
 export default function ClinicaMindWorkspace() {
   const [isListening, setIsListening] = useState(true);
-  const [selectedScenario, setSelectedScenario] = useState(PATIENT_TRIAGE_CASES[0]);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
   const [transcript, setTranscript] = useState('');
-  const [patientId, setPatientId] = useState('1234');
+  const [patientId, setPatientId] = useState('');
   const [graphData, setGraphData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+
+  // Fetch real backend patients
+  useEffect(() => {
+    async function loadPatients() {
+      try {
+        const res = await fetch('/api/patients');
+        const json = await res.json();
+        if (json.success && json.data) {
+          setPatients(json.data);
+          if (json.data.length > 0) {
+            setSelectedPatient(json.data[0]);
+            setPatientId(json.data[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load patients from backend:', err);
+      }
+    }
+    loadPatients();
+  }, []);
 
   const nodeTypes = useMemo(() => ({
     speech: SpeechNode,
@@ -69,7 +66,7 @@ export default function ClinicaMindWorkspace() {
       const response = await fetch('/api/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: text, patientId: pid })
+        body: JSON.stringify({ transcript: text, patientId: pid || 'p-new' })
       });
 
       if (response.ok) {
@@ -89,11 +86,35 @@ export default function ClinicaMindWorkspace() {
     }
   }, [transcript, patientId]);
 
-  const handleScenarioChange = (scen: typeof PATIENT_TRIAGE_CASES[0]) => {
-    setSelectedScenario(scen);
-    setPatientId(scen.patientId);
+  const handlePatientSelect = (patient: any) => {
+    setSelectedPatient(patient);
+    setPatientId(patient.id);
     setTranscript('');
     setGraphData(null);
+  };
+
+  const handleCreateNewPatient = async () => {
+    try {
+      const newP = {
+        firstName: 'New',
+        lastName: `Patient #${patients.length + 1}`,
+        dob: '1985-06-15',
+        gender: 'Unspecified',
+        phone: `+1 (555) ${Math.floor(1000000 + Math.random() * 9000000)}`
+      };
+      const res = await fetch('/api/patients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newP)
+      });
+      const json = await res.json();
+      if (json.success) {
+        setPatients((prev) => [...prev, json.data]);
+        handlePatientSelect(json.data);
+      }
+    } catch (err) {
+      console.error('Failed to create patient:', err);
+    }
   };
 
   return (
@@ -120,24 +141,37 @@ export default function ClinicaMindWorkspace() {
             </div>
           </div>
 
-          {/* Patient EHR Triage Switcher */}
+          {/* Patient EHR Switcher */}
           <div className="flex items-center gap-2">
             <span className="label-text mr-1">Active Patient EHR:</span>
-            {PATIENT_TRIAGE_CASES.map((scen) => (
-              <button
-                key={scen.id}
-                onClick={() => handleScenarioChange(scen)}
-                className={selectedScenario.id === scen.id ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
-              >
-                {scen.title.split(' ')[0]} {scen.title.split(' ')[1]}
-              </button>
-            ))}
+            {patients.length > 0 ? (
+              <div className="flex items-center gap-1.5 overflow-x-auto max-w-md">
+                {patients.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handlePatientSelect(p)}
+                    className={selectedPatient?.id === p.id ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+                  >
+                    {p.firstName} {p.lastName} ({p.mrn})
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="text-xs text-slate-400 font-mono italic">No patients in database</span>
+            )}
+            <button
+              onClick={handleCreateNewPatient}
+              className="btn-secondary text-xs flex items-center gap-1 shrink-0 ml-1"
+              title="Add New Patient to Backend DB"
+            >
+              <UserPlus size={13} />
+              <span>New Patient</span>
+            </button>
           </div>
         </header>
 
-        {/* Content Body: Hero Consultation Card + Audio Recorder + React Flow Canvas */}
+        {/* Content Body */}
         <main className="content-area">
-          {/* Live Consultation Hero Card */}
           <ConsultationHeroCard
             isListening={isListening}
             onToggleListening={() => setIsListening(!isListening)}
@@ -147,7 +181,6 @@ export default function ClinicaMindWorkspace() {
             graphData={graphData}
           />
 
-          {/* Live Audio Stream Recorder & Diarization Component */}
           <AudioStreamRecorder
             onTranscriptUpdate={(newText) => {
               setTranscript(newText);
@@ -157,7 +190,6 @@ export default function ClinicaMindWorkspace() {
             onToggleListening={() => setIsListening(!isListening)}
           />
 
-          {/* React Flow Multi-Agent Graph Canvas */}
           <div className="h-[560px] panel relative min-h-[500px]">
             <div className="absolute top-3 left-3 z-10 glass-card px-3 py-1.5 text-xs font-mono text-slate-700 font-bold flex items-center gap-2 shadow-xs">
               <Activity size={14} className="text-emerald-500 animate-pulse" />
@@ -201,15 +233,13 @@ export default function ClinicaMindWorkspace() {
         </main>
       </div>
 
-      {/* 3. Right Information Panel */}
-      <RightInfoPanel />
+      <RightInfoPanel activePatient={selectedPatient} />
 
-      {/* 4. AI Copilot Drawer */}
       <CopilotDrawer
         isOpen={isCopilotOpen}
         onClose={() => setIsCopilotOpen(false)}
         patientId={patientId}
-        patientName={selectedScenario.id === 'case-3-pneumonia' ? 'Eleanor Vance' : selectedScenario.id === 'case-2-warfarin' ? 'Robert Miller' : 'Sarah Jenkins'}
+        patientName={selectedPatient ? `${selectedPatient.firstName} ${selectedPatient.lastName}` : 'No Active Patient'}
         transcript={transcript}
       />
     </div>

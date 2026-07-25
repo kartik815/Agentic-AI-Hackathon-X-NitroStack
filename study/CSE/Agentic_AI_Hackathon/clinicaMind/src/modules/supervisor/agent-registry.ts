@@ -66,10 +66,10 @@ export class AgentRegistryService {
         return {
           agentId: 'history',
           agentName: 'History Agent',
-          confidence: 0.98,
-          limitations: profile.pastSurgeries.length === 0 ? ['No documented surgical history verified'] : [],
-          missingInformation: [],
-          findings: profile,
+          confidence: profile ? 0.98 : 0.5,
+          limitations: (!profile || profile.pastSurgeries.length === 0) ? ['No documented surgical history verified'] : [],
+          missingInformation: profile ? [] : ['Patient EHR record not found in database'],
+          findings: profile || { patientId: ctx.patientId, name: 'Unregistered Patient', conditions: [], allergies: [], medications: [] },
           executionTimeMs: Date.now() - start,
           timestamp: new Date().toISOString()
         };

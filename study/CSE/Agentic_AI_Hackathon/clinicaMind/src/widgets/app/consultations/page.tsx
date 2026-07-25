@@ -1,30 +1,46 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '../../components/Sidebar';
 import { RightInfoPanel } from '../../components/RightInfoPanel';
 import { Stethoscope, Clock, CheckCircle2, AlertTriangle, Activity, ArrowRight } from 'lucide-react';
 
 export default function ConsultationsQueuePage() {
-  const [activeTab, setActiveTab] = useState<'waiting' | 'active' | 'completed' | 'emergency'>('waiting');
+  const [activeTab, setActiveTab] = useState<'waiting' | 'active' | 'completed' | 'all'>('all');
+  const [visits, setVisits] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const patientsWaiting = [
-    { id: '5678', name: 'Robert Miller', age: 60, gender: 'Male', complaint: 'Knee pain; taking Ibuprofen with Warfarin', risk: 'HIGH RISK', waitTime: '8 mins' },
-    { id: '1092', name: 'James Wilson', age: 54, gender: 'Male', complaint: 'Hypertension follow-up & headache', risk: 'MODERATE RISK', waitTime: '15 mins' }
-  ];
+  useEffect(() => {
+    async function loadVisits() {
+      try {
+        setLoading(true);
+        const res = await fetch('/api/visits');
+        const json = await res.json();
+        if (json.success) {
+          setVisits(json.data || []);
+        }
+      } catch (err) {
+        console.error('Failed to load visits:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadVisits();
+  }, []);
 
-  const activeConsultation = [
-    { id: '1234', name: 'Eleanor Vance', age: 70, gender: 'Female', complaint: 'Acute chest pain x2 days, cough, fever in diabetic patient', risk: 'CRITICAL RISK', startTime: '10:15 AM' }
-  ];
+  const scheduledVisits = visits.filter((v) => v.visitStatus === 'SCHEDULED');
+  const activeVisits = visits.filter((v) => v.visitStatus === 'IN_PROGRESS');
+  const completedVisits = visits.filter((v) => v.visitStatus === 'COMPLETED');
 
-  const completedConsultations = [
-    { id: '9012', name: 'Sarah Jenkins', age: 25, gender: 'Female', complaint: 'Mild runny nose and clear discharge', risk: 'LOW RISK', completedTime: '09:45 AM' }
-  ];
-
-  const emergencyPatients = [
-    { id: '1234', name: 'Eleanor Vance', age: 70, complaint: 'Penicillin allergy & severe chest distress', alert: 'Critical Anaphylaxis Warning' }
-  ];
+  const displayedVisits =
+    activeTab === 'waiting'
+      ? scheduledVisits
+      : activeTab === 'active'
+      ? activeVisits
+      : activeTab === 'completed'
+      ? completedVisits
+      : visits;
 
   return (
     <div className="flex h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-hidden">
@@ -57,144 +73,70 @@ export default function ConsultationsQueuePage() {
         {/* Tab Filters */}
         <div className="bg-white border-b border-slate-200/80 px-8 flex items-center gap-2 text-xs font-bold shrink-0 shadow-xs">
           <button
+            onClick={() => setActiveTab('all')}
+            className={`px-4 py-3 border-b-2 transition ${activeTab === 'all' ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' : 'border-transparent text-slate-500'}`}
+          >
+            All Visits ({visits.length})
+          </button>
+          <button
             onClick={() => setActiveTab('waiting')}
             className={`px-4 py-3 border-b-2 transition ${activeTab === 'waiting' ? 'border-amber-500 text-amber-700 bg-amber-50/50' : 'border-transparent text-slate-500'}`}
           >
-            Waiting ({patientsWaiting.length})
+            Scheduled ({scheduledVisits.length})
           </button>
           <button
             onClick={() => setActiveTab('active')}
             className={`px-4 py-3 border-b-2 transition ${activeTab === 'active' ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' : 'border-transparent text-slate-500'}`}
           >
-            Active ({activeConsultation.length})
+            Active ({activeVisits.length})
           </button>
           <button
             onClick={() => setActiveTab('completed')}
             className={`px-4 py-3 border-b-2 transition ${activeTab === 'completed' ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50' : 'border-transparent text-slate-500'}`}
           >
-            Completed ({completedConsultations.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('emergency')}
-            className={`px-4 py-3 border-b-2 transition ${activeTab === 'emergency' ? 'border-red-600 text-red-700 bg-red-50/50' : 'border-transparent text-slate-500'}`}
-          >
-            Emergency ({emergencyPatients.length})
+            Completed ({completedVisits.length})
           </button>
         </div>
 
         {/* Queue Content */}
         <div className="p-8 max-w-7xl w-full mx-auto space-y-4">
-          {activeTab === 'waiting' && (
+          {displayedVisits.length > 0 ? (
             <div className="space-y-3">
-              {patientsWaiting.map((p) => (
-                <div key={p.id} className="bg-white border border-slate-200/80 p-5 rounded-2xl flex items-center justify-between shadow-xs hover:shadow-md transition">
+              {displayedVisits.map((v) => (
+                <div key={v.id} className="bg-white border border-slate-200/80 p-5 rounded-2xl flex items-center justify-between shadow-xs hover:shadow-md transition">
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <h3 className="font-bold text-base text-slate-900">{p.name} ({p.age}y / {p.gender})</h3>
-                      <span className="text-xs font-mono text-slate-500">ID: {p.id}</span>
-                      <span className="text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded">
-                        {p.risk}
+                      <h3 className="font-bold text-base text-slate-900">Visit {v.id}</h3>
+                      <span className="text-xs font-mono text-slate-500">Patient ID: {v.patientId}</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${v.visitStatus === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : v.visitStatus === 'IN_PROGRESS' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {v.visitStatus}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-600">{p.complaint}</p>
-                    <span className="text-[10px] text-slate-400 font-mono">Wait Time: {p.waitTime}</span>
+                    <p className="text-xs text-slate-600">{v.chiefComplaint || 'No chief complaint specified'}</p>
+                    <span className="text-[10px] text-slate-400 font-mono">Started: {v.startedAt}</span>
                   </div>
 
                   <Link
                     href="/workspace"
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-indigo-200"
+                    className="flex items-center gap-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 px-4 py-2 rounded-xl text-xs font-bold transition"
                   >
-                    <span>Start Consultation</span>
+                    <span>Open Canvas</span>
                     <ArrowRight size={14} />
                   </Link>
                 </div>
               ))}
             </div>
-          )}
-
-          {activeTab === 'active' && (
-            <div className="space-y-3">
-              {activeConsultation.map((p) => (
-                <div key={p.id} className="bg-white border-2 border-indigo-500 p-5 rounded-2xl flex items-center justify-between shadow-md">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-                      <h3 className="font-bold text-base text-slate-900">{p.name} ({p.age}y / {p.gender})</h3>
-                      <span className="text-xs font-mono text-slate-500">ID: {p.id}</span>
-                      <span className="text-xs font-bold bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded">
-                        {p.risk}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600">{p.complaint}</p>
-                  </div>
-
-                  <Link
-                    href="/workspace"
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-indigo-200"
-                  >
-                    <span>Open AI Canvas Workspace</span>
-                    <ArrowRight size={14} />
-                  </Link>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'completed' && (
-            <div className="space-y-3">
-              {completedConsultations.map((p) => (
-                <div key={p.id} className="bg-white border border-slate-200/80 p-5 rounded-2xl flex items-center justify-between shadow-xs">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-bold text-base text-slate-900">{p.name} ({p.age}y / {p.gender})</h3>
-                      <span className="text-xs font-mono text-slate-500">ID: {p.id}</span>
-                      <span className="text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded">
-                        {p.risk}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600">{p.complaint}</p>
-                  </div>
-
-                  <Link
-                    href={`/patients/${p.id}`}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-4 py-2 rounded-xl border border-slate-200 transition"
-                  >
-                    View Patient File
-                  </Link>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'emergency' && (
-            <div className="space-y-3">
-              {emergencyPatients.map((p) => (
-                <div key={p.id} className="bg-red-50 border border-red-200 p-5 rounded-2xl flex items-center justify-between shadow-xs">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3">
-                      <AlertTriangle size={18} className="text-red-600 animate-bounce" />
-                      <h3 className="font-bold text-base text-red-900">{p.name} ({p.age}y)</h3>
-                      <span className="text-xs font-mono bg-red-600 text-white px-2 py-0.5 rounded font-bold">EMERGENCY</span>
-                    </div>
-                    <p className="text-xs text-red-800">{p.complaint}</p>
-                    <span className="text-[11px] font-bold text-red-700 block">{p.alert}</span>
-                  </div>
-
-                  <Link
-                    href="/workspace"
-                    className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-red-200"
-                  >
-                    <span>Emergency Canvas</span>
-                    <ArrowRight size={14} />
-                  </Link>
-                </div>
-              ))}
+          ) : (
+            <div className="p-12 border border-dashed border-slate-200 rounded-2xl text-center space-y-2 bg-white">
+              <Clock size={32} className="mx-auto text-slate-300" />
+              <h3 className="text-sm font-bold text-slate-700">No visits recorded</h3>
+              <p className="text-xs text-slate-400">Start an audio consultation session from the main workspace canvas.</p>
             </div>
           )}
         </div>
       </main>
 
-      <RightInfoPanel />
+      <RightInfoPanel activePatient={null} />
     </div>
   );
 }

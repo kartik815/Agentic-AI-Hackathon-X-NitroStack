@@ -26,9 +26,9 @@ interface CopilotDrawerProps {
 export function CopilotDrawer({
   isOpen,
   onClose,
-  patientId = '1234',
-  patientName = 'Eleanor Vance',
-  transcript = 'Patient presents with severe chest pain x2 days, productive cough, and chills.'
+  patientId = '',
+  patientName = 'No Active Patient',
+  transcript = ''
 }: CopilotDrawerProps) {
   const [messages, setMessages] = useState<CopilotMessage[]>([
     {

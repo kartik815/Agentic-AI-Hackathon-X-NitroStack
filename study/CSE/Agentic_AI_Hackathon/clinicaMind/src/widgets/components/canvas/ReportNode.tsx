@@ -94,7 +94,7 @@ export function ReportNode({ data }: { data: any }) {
             </div>
             <div className="space-y-3 text-xs text-slate-700 leading-relaxed">
               <p className="bg-slate-50 p-4 rounded-xl border border-slate-200 font-sans">
-                {report.fullReport || "Patient Eleanor Vance (70y) presents with acute chest pain and productive cough. Cross-referenced EHR history confirming severe Penicillin allergy. Levofloxacin 750mg QD initiated per JAMA 2026 guidelines."}
+                {report.fullReport || "Clinical report summary and assessment."}
               </p>
               <button className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5">
                 <Download size={14} /> Download Final PDF Report

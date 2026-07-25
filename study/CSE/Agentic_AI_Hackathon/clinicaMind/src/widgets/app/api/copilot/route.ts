@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 import { HistoryService } from '../../../../modules/history/history.service';
 import { MedicationService } from '../../../../modules/medication/medication.service';
 import { ResearchService } from '../../../../modules/research/research.service';

@@ -39,8 +39,9 @@ pids/
 coverage/
 .nyc_output/
 
-# Uploads
+# Uploads & Local Data
 uploads/
+data/
 
 # TypeScript cache
 *.tsbuildinfo
