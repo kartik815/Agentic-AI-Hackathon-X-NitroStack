@@ -1,13 +1,9 @@
 /**
- * Pizzaz MCP Server
+ * ClinicaMind MCP Server
  * 
- * Pizza shop finder with interactive map widgets.
- * Showcases NitroStack Widget SDK features including:
- * - useTheme() for dark mode
- * - useWidgetState() for persistent favorites
- * - useDisplayMode() for fullscreen support
- * - useMaxHeight() for responsive layouts
- * - useWidgetSDK() for tool calling and navigation
+ * Multi-Agent AI Clinical Decision Support Workspace built with NitroStack MCP.
+ * Features 6-agent clinical orchestration, EHR history retrieval, medication safety,
+ * real-time consultation speech processing, and interactive Next.js widgets.
  */
 
 import 'dotenv/config';
