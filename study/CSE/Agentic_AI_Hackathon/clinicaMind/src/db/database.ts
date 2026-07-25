@@ -22,6 +22,8 @@ export interface DatabaseStore {
   agent_outputs: any[];
   reports: any[];
   audit_logs: any[];
+  intake_packages: any[];
+  intake_attachments: any[];
 }
 
 const DEFAULT_STORE: DatabaseStore = {
@@ -44,7 +46,9 @@ const DEFAULT_STORE: DatabaseStore = {
   agent_executions: [],
   agent_outputs: [],
   reports: [],
-  audit_logs: []
+  audit_logs: [],
+  intake_packages: [],
+  intake_attachments: []
 };
 
 const DB_DIR = path.resolve(process.cwd(), 'data');

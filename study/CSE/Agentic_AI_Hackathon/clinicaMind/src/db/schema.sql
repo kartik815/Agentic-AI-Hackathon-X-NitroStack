@@ -298,3 +298,41 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entityType, entityId);
+
+-- 21. Intake Packages Table (Autonomous Inbox Monitoring)
+CREATE TABLE IF NOT EXISTS intake_packages (
+    id TEXT PRIMARY KEY,
+    packageNumber TEXT UNIQUE NOT NULL,
+    senderEmail TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING_VERIFICATION' CHECK(status IN ('RECEIVED', 'PROCESSING', 'PENDING_VERIFICATION', 'APPROVED', 'REJECTED', 'MERGED')),
+    receivedAt TEXT NOT NULL DEFAULT (datetime('now')),
+    extractedPatient TEXT, -- JSON string of 17 extracted fields
+    mergedPatientId TEXT,
+    reviewedBy TEXT,
+    reviewedAt TEXT,
+    rejectionReason TEXT,
+    createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+    updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (mergedPatientId) REFERENCES patients(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_intake_status ON intake_packages(status);
+
+-- 22. Intake Attachments Table
+CREATE TABLE IF NOT EXISTS intake_attachments (
+    id TEXT PRIMARY KEY,
+    packageId TEXT NOT NULL,
+    fileName TEXT NOT NULL,
+    documentType TEXT NOT NULL, -- PDF, PNG, JPEG, Medical Forms, Insurance, MRI, CT, ECG, Blood Reports, Prescriptions, Referral Letter
+    filePath TEXT NOT NULL,
+    fileSize INTEGER,
+    mimeType TEXT,
+    ocrText TEXT, -- Raw OCR extracted text
+    extractedMetadata TEXT, -- JSON string of extracted entities
+    uploadedAt TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (packageId) REFERENCES intake_packages(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_intake_attachments_pkg ON intake_attachments(packageId);
+

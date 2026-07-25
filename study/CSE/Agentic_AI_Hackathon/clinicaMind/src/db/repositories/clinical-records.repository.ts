@@ -67,7 +67,21 @@ export interface PatientDocumentEntity {
   uploadedAt?: string;
 }
 
+export interface FamilyHistoryEntity {
+  id: string;
+  patientId: string;
+  relation: string;
+  condition: string;
+  notes?: string;
+}
+
 export class ClinicalRecordsRepository {
+  // Family History
+  static addFamilyHistory(family: FamilyHistoryEntity): FamilyHistoryEntity {
+    const db = getDb();
+    return db.insert('family_history', family);
+  }
+
   // Allergies
   static getAllergies(patientId: string): AllergyEntity[] {
     const db = getDb();
