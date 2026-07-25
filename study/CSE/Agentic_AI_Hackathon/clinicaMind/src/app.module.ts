@@ -1,5 +1,10 @@
 import { McpApp, Module, ConfigModule } from '@nitrostack/core';
 import { SupervisorModule } from './modules/supervisor/supervisor.module';
+import { HistoryModule } from './modules/history/history.module';
+import { MedicationModule } from './modules/medication/medication.module';
+import { ResearchModule } from './modules/research/research.module';
+import { GapAnalysisModule } from './modules/gap-analysis/gap-analysis.module';
+import { ReportModule } from './modules/report/report.module';
 import { ToolsModule } from './modules/tools/tools.module';
 import { ResourcesModule } from './modules/resources/resources.module';
 import { PromptsModule } from './modules/prompts/prompts.module';
@@ -26,6 +31,11 @@ import { HealthModule } from './modules/health/health.module';
   description: 'AI Clinical Intelligence & Multi-Agent Decision Support Workspace',
   imports: [
     ConfigModule.forRoot(),
+    HistoryModule,
+    MedicationModule,
+    ResearchModule,
+    GapAnalysisModule,
+    ReportModule,
     SupervisorModule,
     ToolsModule,
     ResourcesModule,
