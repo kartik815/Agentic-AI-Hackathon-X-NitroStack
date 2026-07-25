@@ -18,37 +18,34 @@ import { ResearchNode } from '../components/canvas/ResearchNode';
 import { GapNode } from '../components/canvas/GapNode';
 import { ReportNode } from '../components/canvas/ReportNode';
 
-const DEMO_SCENARIOS = [
+const PATIENT_TRIAGE_CASES = [
   {
     id: 'case-3-pneumonia',
-    title: 'Case 3: Pneumonia & Penicillin Allergy',
+    title: 'Eleanor Vance (70yo / EHR 1234)',
     patientId: '1234',
     badge: 'CRITICAL RISK',
-    badgeClass: 'badge-critical',
-    transcript: 'Patient presents with severe chest pain x2 days, productive cough, and chills. Patient is 70yo diabetic with a documented penicillin allergy.'
+    badgeClass: 'badge-critical'
   },
   {
     id: 'case-2-warfarin',
-    title: 'Case 2: Warfarin + Ibuprofen Interaction',
+    title: 'Robert Miller (60yo / EHR 5678)',
     patientId: '5678',
     badge: 'HIGH RISK',
-    badgeClass: 'badge-warning',
-    transcript: 'Patient on maintenance Warfarin for atrial fibrillation presents with knee arthritis pain and started taking OTC Ibuprofen 400mg TID.'
+    badgeClass: 'badge-warning'
   },
   {
     id: 'case-1-cold',
-    title: 'Case 1: Mild Upper Respiratory Infection',
+    title: 'Sarah Jenkins (25yo / EHR 9012)',
     patientId: '9012',
     badge: 'LOW RISK',
-    badgeClass: 'badge-normal',
-    transcript: 'Patient reports mild runny nose, clear discharge, and slight frontal headache for 1 day. No fever or shortness of breath.'
+    badgeClass: 'badge-normal'
   }
 ];
 
 export default function ClinicaMindWorkspace() {
   const [isListening, setIsListening] = useState(true);
-  const [selectedScenario, setSelectedScenario] = useState(DEMO_SCENARIOS[0]);
-  const [transcript, setTranscript] = useState(DEMO_SCENARIOS[0].transcript);
+  const [selectedScenario, setSelectedScenario] = useState(PATIENT_TRIAGE_CASES[0]);
+  const [transcript, setTranscript] = useState('');
   const [patientId, setPatientId] = useState('1234');
   const [graphData, setGraphData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -65,6 +62,8 @@ export default function ClinicaMindWorkspace() {
   }), []);
 
   const runOrchestration = async (text: string, pid: string) => {
+    if (!text || text.trim().length === 0) return;
+
     setIsLoading(true);
     try {
       const response = await fetch('/api/evaluate', {
@@ -85,13 +84,16 @@ export default function ClinicaMindWorkspace() {
   };
 
   useEffect(() => {
-    runOrchestration(transcript, patientId);
+    if (transcript && transcript.trim().length > 0) {
+      runOrchestration(transcript, patientId);
+    }
   }, [transcript, patientId]);
 
-  const handleScenarioChange = (scen: typeof DEMO_SCENARIOS[0]) => {
+  const handleScenarioChange = (scen: typeof PATIENT_TRIAGE_CASES[0]) => {
     setSelectedScenario(scen);
-    setTranscript(scen.transcript);
     setPatientId(scen.patientId);
+    setTranscript('');
+    setGraphData(null);
   };
 
   return (
@@ -118,16 +120,16 @@ export default function ClinicaMindWorkspace() {
             </div>
           </div>
 
-          {/* Demo Scenario Switcher */}
+          {/* Patient EHR Triage Switcher */}
           <div className="flex items-center gap-2">
-            <span className="label-text mr-1">Triage Cases:</span>
-            {DEMO_SCENARIOS.map((scen) => (
+            <span className="label-text mr-1">Active Patient EHR:</span>
+            {PATIENT_TRIAGE_CASES.map((scen) => (
               <button
                 key={scen.id}
                 onClick={() => handleScenarioChange(scen)}
                 className={selectedScenario.id === scen.id ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
               >
-                {scen.title.split(':')[0]}
+                {scen.title.split(' ')[0]} {scen.title.split(' ')[1]}
               </button>
             ))}
           </div>
@@ -192,8 +194,7 @@ export default function ClinicaMindWorkspace() {
               </ReactFlow>
             ) : (
               <div className="flex items-center justify-center h-full text-slate-400 font-mono text-xs">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600 mr-2"></div>
-                <span>Executing NitroStack Agent Pipeline...</span>
+                <span>Start Audio Consultation or speak into microphone to trigger dynamic multi-agent execution...</span>
               </div>
             )}
           </div>
@@ -208,7 +209,7 @@ export default function ClinicaMindWorkspace() {
         isOpen={isCopilotOpen}
         onClose={() => setIsCopilotOpen(false)}
         patientId={patientId}
-        patientName={selectedScenario.id === 'case-3-pneumonia' ? 'Eleanor Vance' : selectedScenario.id === 'case-2-warfarin' ? 'Arthur Pendelton' : 'Clara Miller'}
+        patientName={selectedScenario.id === 'case-3-pneumonia' ? 'Eleanor Vance' : selectedScenario.id === 'case-2-warfarin' ? 'Robert Miller' : 'Sarah Jenkins'}
         transcript={transcript}
       />
     </div>
