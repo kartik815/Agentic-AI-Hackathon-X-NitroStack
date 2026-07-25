@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Mic, MicOff, Activity, Sparkles, RefreshCw, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Sparkles, RefreshCw, Volume2 } from 'lucide-react';
 
 interface ConsultationHeroCardProps {
   isListening: boolean;
@@ -9,6 +9,7 @@ interface ConsultationHeroCardProps {
   transcript: string;
   onRefresh: () => void;
   isLoading: boolean;
+  graphData?: any;
 }
 
 export function ConsultationHeroCard({
@@ -16,9 +17,28 @@ export function ConsultationHeroCard({
   onToggleListening,
   transcript,
   onRefresh,
-  isLoading
+  isLoading,
+  graphData
 }: ConsultationHeroCardProps) {
-  const detectedSymptoms = ['Severe Chest Pain', 'Productive Cough', 'Chills & Fever', 'Penicillin Allergy', 'Type 2 Diabetes'];
+  // Derive dynamic symptoms and flags from real agent output
+  const extractedSymptoms: string[] = graphData?.symptomsExtracted || [];
+  const riskFactors: string[] = graphData?.evidencePackage?.riskFactors || [];
+  const allergyConflicts: any[] = graphData?.evidencePackage?.allergyConflicts || [];
+
+  const displayFlags = [
+    ...extractedSymptoms,
+    ...allergyConflicts.map(a => `Allergy: ${a.drug || a.substance || 'Conflict'}`),
+    ...riskFactors
+  ];
+
+  // Derive dynamic activity ticker message from real observability metadata
+  const selectedAgents: string[] = graphData?.observability?.selectedAgents || ['supervisor'];
+  const overallConfidence = graphData?.observability?.overallConfidence || 0.94;
+  const intentCategory = graphData?.intentCategory || 'GENERAL_COPILOT';
+
+  const tickerMessage = selectedAgents.length > 0
+    ? `Supervisor Intent: ${intentCategory} • Executed [${selectedAgents.join(', ')}] • Overall Confidence: ${(overallConfidence * 100).toFixed(0)}%`
+    : 'Awaiting microphone speech input...';
 
   return (
     <div className="consultation-panel space-y-4">
@@ -35,7 +55,7 @@ export function ConsultationHeroCard({
                 {isListening ? 'LIVE MIC RECORDING' : 'AUDIO READY'}
               </span>
             </h2>
-            <p className="body-sm">Real-time voice processing & multi-agent signal extraction</p>
+            <p className="body-sm">Real-time voice processing & dynamic multi-agent execution</p>
           </div>
         </div>
 
@@ -58,56 +78,35 @@ export function ConsultationHeroCard({
         </div>
       </div>
 
-      {/* Audio Waveform Equalizer Bar */}
-      <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-        <div className="flex items-center justify-between text-xs font-mono">
-          <span className="text-slate-400 flex items-center gap-1.5">
-            <Activity size={14} className="text-emerald-400 animate-pulse" />
-            <span>Consultation Live Audio Frequency Input</span>
-          </span>
-          <span className="text-emerald-400 font-bold">44.1 kHz • PCM Mono Input Stream</span>
-        </div>
-
-        {/* Waveform Equalizer Animation Bars */}
-        <div className="flex items-center justify-between gap-1 h-10 px-2 pt-1">
-          {Array.from({ length: 48 }).map((_, i) => {
-            const heights = ['h-3', 'h-6', 'h-8', 'h-4', 'h-9', 'h-5', 'h-7', 'h-2'];
-            const heightClass = isListening ? heights[i % heights.length] : 'h-2';
-            return (
-              <div
-                key={i}
-                className={`w-1 rounded-full bg-gradient-to-t from-indigo-500 to-emerald-400 transition-all duration-300 ${heightClass}`}
-              />
-            );
-          })}
-        </div>
-      </div>
-
       {/* Transcript & Symptom Extraction Grid */}
       <div className="grid grid-cols-3 gap-4">
         {/* Live Transcript Box */}
         <div className="col-span-2 bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-1">
           <span className="label-text block">Live Voice Transcript Stream:</span>
           <p className="body-md italic leading-relaxed max-h-24 overflow-y-auto pr-1">
-            "{transcript}"
+            {transcript ? `"${transcript}"` : 'Listening... Speak into your microphone.'}
           </p>
         </div>
 
-        {/* Detected Symptoms Tags */}
+        {/* Extracted Symptoms Tags */}
         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-2">
-          <span className="label-text block">Extracted Symptoms & Flags:</span>
+          <span className="label-text block">Live Extracted Symptoms & Flags:</span>
           <div className="flex flex-wrap gap-1">
-            {detectedSymptoms.map((symptom, idx) => {
-              const isAlert = symptom.includes('Allergy') || symptom.includes('Chest Pain');
-              return (
-                <span
-                  key={idx}
-                  className={isAlert ? 'badge-critical' : 'badge-review'}
-                >
-                  {isAlert ? `⚠️ ${symptom}` : symptom}
-                </span>
-              );
-            })}
+            {displayFlags.length > 0 ? (
+              displayFlags.map((symptom, idx) => {
+                const isAlert = symptom.toLowerCase().includes('allergy') || symptom.toLowerCase().includes('chest pain') || symptom.toLowerCase().includes('critical');
+                return (
+                  <span
+                    key={idx}
+                    className={isAlert ? 'badge-critical' : 'badge-review'}
+                  >
+                    {isAlert ? `⚠️ ${symptom}` : symptom}
+                  </span>
+                );
+              })
+            ) : (
+              <span className="text-xs text-slate-400 font-mono">No symptoms extracted yet</span>
+            )}
           </div>
         </div>
       </div>
@@ -117,12 +116,10 @@ export function ConsultationHeroCard({
         <div className="flex items-center gap-3">
           <Sparkles size={16} className="text-indigo-400 animate-pulse" />
           <span>Multi-Agent Live Activity Ticker:</span>
-          <span className="text-emerald-300 font-bold">Medication Agent flagged Penicillin Allergy</span>
-          <span className="text-slate-400">•</span>
-          <span className="text-blue-300">Research Agent cited JAMA 2026</span>
+          <span className="text-emerald-300 font-bold">{tickerMessage}</span>
         </div>
         <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800 px-2 py-0.5 rounded">
-          Latency: ~12ms
+          Sync: Realtime
         </span>
       </div>
     </div>

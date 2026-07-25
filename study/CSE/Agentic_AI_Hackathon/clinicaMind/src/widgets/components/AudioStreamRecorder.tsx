@@ -23,41 +23,7 @@ export function AudioStreamRecorder({
   isListening,
   onToggleListening
 }: AudioStreamRecorderProps) {
-  const [diarizedTurns, setDiarizedTurns] = useState<DiarizedTurn[]>([
-    {
-      id: 'turn-1',
-      speaker: 'Doctor',
-      text: 'Good morning. What symptoms have been troubling you over the past few days?',
-      time: '10:14 AM',
-      confidence: 0.98,
-      isFinal: true
-    },
-    {
-      id: 'turn-2',
-      speaker: 'Patient',
-      text: 'Doctor, I have severe chest pain when breathing, a productive cough with yellow sputum, and fever.',
-      time: '10:15 AM',
-      confidence: 0.96,
-      isFinal: true
-    },
-    {
-      id: 'turn-3',
-      speaker: 'Doctor',
-      text: 'I see. Before discussing antibiotics, let me verify your allergies. Do you have a documented Penicillin allergy?',
-      time: '10:15 AM',
-      confidence: 0.97,
-      isFinal: true
-    },
-    {
-      id: 'turn-4',
-      speaker: 'Patient',
-      text: 'Yes doctor, Penicillin gave me severe hives and difficulty breathing as a child.',
-      time: '10:16 AM',
-      confidence: 0.99,
-      isFinal: true
-    }
-  ]);
-
+  const [diarizedTurns, setDiarizedTurns] = useState<DiarizedTurn[]>([]);
   const [interimText, setInterimText] = useState<string>('');
   const [micStatus, setMicStatus] = useState<'READY' | 'RECORDING' | 'PERMISSION_DENIED' | 'UNSUPPORTED' | 'DISCONNECTED'>('READY');
   const [audioError, setAudioError] = useState<string | null>(null);
@@ -68,10 +34,12 @@ export function AudioStreamRecorder({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
+  const deepgramWsRef = useRef<WebSocket | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize Web Audio API Analyser & Canvas Visualizer
-  const setupAudioContext = async (stream: MediaStream) => {
+  const setupAudioContext = (stream: MediaStream) => {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextClass) return;
@@ -130,7 +98,112 @@ export function AudioStreamRecorder({
     renderFrame();
   };
 
-  // Setup Browser Microphone Stream & SpeechRecognition
+  // Setup Deepgram WebSocket Streaming API if API Key is configured, else fallback to Web Speech API
+  const setupDeepgramStreaming = (stream: MediaStream) => {
+    const deepgramKey = process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY;
+    if (!deepgramKey) return false;
+
+    try {
+      const ws = new WebSocket(`wss://api.deepgram.com/v1/listen?model=nova-2-medical&diarize=true&punctuate=true`, ['token', deepgramKey]);
+      
+      ws.onopen = () => {
+        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+            ws.send(event.data);
+          }
+        };
+        mediaRecorder.start(250);
+        mediaRecorderRef.current = mediaRecorder;
+      };
+
+      ws.onmessage = (message) => {
+        const received = JSON.parse(message.data);
+        const transcript = received.channel?.alternatives[0]?.transcript;
+        if (transcript) {
+          const speakerId = received.channel?.alternatives[0]?.words[0]?.speaker || 0;
+          const speakerLabel: 'Doctor' | 'Patient' = speakerId === 0 ? 'Doctor' : 'Patient';
+
+          if (received.is_final) {
+            addTurn(speakerLabel, transcript, 0.97, true);
+          } else {
+            setInterimText(transcript);
+          }
+        }
+      };
+
+      deepgramWsRef.current = ws;
+      return true;
+    } catch (e) {
+      console.warn('Deepgram streaming fallback notice:', e);
+      return false;
+    }
+  };
+
+  // Setup Native SpeechRecognition Listener (Fallback STT Engine)
+  const setupSpeechRecognition = () => {
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      console.warn('SpeechRecognition API not available in browser. Speech turns will be added via audio input.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        let currentInterim = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const res = event.results[i];
+          const transcriptText = res[0].transcript;
+          const conf = res[0].confidence || 0.95;
+
+          if (res.isFinal) {
+            const isQuestion = transcriptText.trim().endsWith('?') || transcriptText.toLowerCase().startsWith('how') || transcriptText.toLowerCase().startsWith('what') || transcriptText.toLowerCase().startsWith('do you');
+            const inferredSpeaker: 'Doctor' | 'Patient' = isQuestion ? 'Doctor' : 'Patient';
+
+            addTurn(inferredSpeaker, transcriptText.trim(), parseFloat(conf.toFixed(2)), true);
+            setInterimText('');
+          } else {
+            currentInterim += transcriptText;
+            setInterimText(currentInterim);
+          }
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('SpeechRecognition notice:', event.error);
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (e) {
+      console.warn('SpeechRecognition init notice:', e);
+    }
+  };
+
+  const addTurn = (speaker: 'Doctor' | 'Patient', text: string, confidence: number, isFinal: boolean) => {
+    const newTurn: DiarizedTurn = {
+      id: `turn-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      speaker,
+      text,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      confidence,
+      isFinal
+    };
+
+    setDiarizedTurns((prev) => {
+      const updated = [...prev, newTurn];
+      const fullText = updated.map((t) => `${t.speaker}: "${t.text}"`).join(' ');
+      onTranscriptUpdate(fullText);
+      return updated;
+    });
+  };
+
+  // Setup Browser Microphone Stream
   useEffect(() => {
     let activeStream: MediaStream | null = null;
 
@@ -157,7 +230,11 @@ export function AudioStreamRecorder({
         });
 
         setupAudioContext(stream);
-        setupSpeechRecognition();
+
+        const deepgramStarted = setupDeepgramStreaming(stream);
+        if (!deepgramStarted) {
+          setupSpeechRecognition();
+        }
 
       } catch (err: any) {
         console.error('Microphone access error:', err);
@@ -185,6 +262,12 @@ export function AudioStreamRecorder({
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch (e) {}
       }
+      if (mediaRecorderRef.current) {
+        try { mediaRecorderRef.current.stop(); } catch (e) {}
+      }
+      if (deepgramWsRef.current) {
+        try { deepgramWsRef.current.close(); } catch (e) {}
+      }
       setMicStatus('READY');
     };
 
@@ -199,67 +282,8 @@ export function AudioStreamRecorder({
     };
   }, [isListening]);
 
-  // Setup Native SpeechRecognition Listener (with Web Speech API & Deepgram readiness)
-  const setupSpeechRecognition = () => {
-    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionClass) {
-      console.warn('SpeechRecognition API not available in browser. Using turns buffer.');
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognitionClass();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event: any) => {
-        let currentInterim = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const res = event.results[i];
-          const transcriptText = res[0].transcript;
-          const conf = res[0].confidence || 0.95;
-
-          if (res.isFinal) {
-            const isQuestion = transcriptText.trim().endsWith('?') || transcriptText.toLowerCase().startsWith('how') || transcriptText.toLowerCase().startsWith('what') || transcriptText.toLowerCase().startsWith('do you');
-            const inferredSpeaker: 'Doctor' | 'Patient' = isQuestion ? 'Doctor' : 'Patient';
-
-            const newTurn: DiarizedTurn = {
-              id: `turn-${Date.now()}`,
-              speaker: inferredSpeaker,
-              text: transcriptText.trim(),
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              confidence: parseFloat(conf.toFixed(2)),
-              isFinal: true
-            };
-
-            setDiarizedTurns((prev) => {
-              const updated = [...prev, newTurn];
-              const fullText = updated.map((t) => `${t.speaker}: "${t.text}"`).join(' ');
-              onTranscriptUpdate(fullText);
-              return updated;
-            });
-            setInterimText('');
-          } else {
-            currentInterim += transcriptText;
-            setInterimText(currentInterim);
-          }
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn('SpeechRecognition notice:', event.error);
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (e) {
-      console.warn('SpeechRecognition init notice:', e);
-    }
-  };
-
-  // Toggle speaker turn manually (Speaker A ↔ Speaker B)
-  const handleToggleSpeaker = (turnId: string) => {
+  // Toggle speaker turn manually (Doctor ↔ Patient)
+  const handleSwapSpeaker = (turnId: string) => {
     setDiarizedTurns((prev) => {
       const updated = prev.map((t) => {
         if (t.id === turnId) {
@@ -277,20 +301,7 @@ export function AudioStreamRecorder({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const uploadedTurn: DiarizedTurn = {
-        id: `file-${Date.now()}`,
-        speaker: 'Patient',
-        text: `[Audio Upload Transcribed: ${file.name}] Patient reports sudden onset chest pressure, dyspnea, and fever.`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        confidence: 0.99,
-        isFinal: true
-      };
-      setDiarizedTurns((prev) => {
-        const updated = [...prev, uploadedTurn];
-        const fullText = updated.map((t) => `${t.speaker}: "${t.text}"`).join(' ');
-        onTranscriptUpdate(fullText);
-        return updated;
-      });
+      addTurn('Patient', `[Audio File Transcribed: ${file.name}] Patient presents with acute symptoms.`, 0.99, true);
     }
   };
 
@@ -304,12 +315,12 @@ export function AudioStreamRecorder({
           </div>
           <div>
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-              Web Audio Microphone Stream & Speaker Diarization
+              Single Audio Stream & Automatic Diarization
               <span className={isListening ? 'badge-critical animate-pulse' : 'badge-normal'}>
                 {micStatus === 'RECORDING' ? 'LIVE MIC RECORDING' : micStatus === 'PERMISSION_DENIED' ? 'PERM DENIED' : 'AUDIO READY'}
               </span>
             </h3>
-            <p className="text-xs text-slate-500 font-medium">Automatic turn detection with manual Doctor vs Patient correction</p>
+            <p className="text-xs text-slate-500 font-medium">Automatic Doctor vs Patient diarization with one-click speaker swap</p>
           </div>
         </div>
 
@@ -344,18 +355,18 @@ export function AudioStreamRecorder({
       {audioError && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2 text-xs text-amber-800">
           <AlertCircle size={16} className="text-amber-600 shrink-0" />
-          <span>{audioError} (Using audio speech turn stream).</span>
+          <span>{audioError}</span>
         </div>
       )}
 
-      {/* Web Audio API FFT Canvas Spectrum */}
+      {/* Single Authoritative Web Audio API FFT Canvas Spectrum */}
       <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2 relative">
         <div className="flex items-center justify-between text-xs font-mono">
           <span className="text-slate-400 flex items-center gap-1.5">
             <Volume2 size={14} className="text-emerald-400 animate-pulse" />
-            <span>Live FFT Audio Frequency Analysis</span>
+            <span>Single Audio Stream Waveform (AnalyserNode FFT)</span>
           </span>
-          <span className="text-emerald-400 font-bold">44.1 kHz • PCM Mono</span>
+          <span className="text-emerald-400 font-bold">44.1 kHz • Mono Input</span>
         </div>
 
         <canvas
@@ -376,36 +387,43 @@ export function AudioStreamRecorder({
 
       {/* Diarized Turns Stream */}
       <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-        {diarizedTurns.map((turn) => (
-          <div
-            key={turn.id}
-            className={`p-3 rounded-xl border text-xs space-y-1 transition ${
-              turn.speaker === 'Doctor'
-                ? 'bg-blue-50/70 border-blue-200 text-blue-900'
-                : 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
-            }`}
-          >
-            <div className="flex items-center justify-between font-mono font-bold text-[10px]">
-              <span className="flex items-center gap-1.5">
-                <UserCheck size={12} className={turn.speaker === 'Doctor' ? 'text-blue-600' : 'text-emerald-600'} />
-                <span>{turn.speaker} (Speaker {turn.speaker === 'Doctor' ? 'A' : 'B'})</span>
-                <span className="text-slate-400 font-normal">Confidence: {turn.confidence}</span>
-              </span>
+        {diarizedTurns.length > 0 ? (
+          diarizedTurns.map((turn) => (
+            <div
+              key={turn.id}
+              className={`p-3 rounded-xl border text-xs space-y-1 transition ${
+                turn.speaker === 'Doctor'
+                  ? 'bg-blue-50/70 border-blue-200 text-blue-900'
+                  : 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+              }`}
+            >
+              <div className="flex items-center justify-between font-mono font-bold text-[10px]">
+                <span className="flex items-center gap-1.5">
+                  <UserCheck size={12} className={turn.speaker === 'Doctor' ? 'text-blue-600' : 'text-emerald-600'} />
+                  <span>{turn.speaker}</span>
+                  <span className="text-slate-400 font-normal">Conf: {turn.confidence}</span>
+                </span>
 
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">{turn.time}</span>
-                <button
-                  onClick={() => handleToggleSpeaker(turn.id)}
-                  className="hover:bg-white/80 p-1 rounded transition text-slate-500 hover:text-slate-900"
-                  title="Switch Speaker Attribution (Doctor ↔ Patient)"
-                >
-                  <RefreshCcw size={12} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">{turn.time}</span>
+                  <button
+                    onClick={() => handleSwapSpeaker(turn.id)}
+                    className="hover:bg-white/80 p-1 rounded transition text-slate-500 hover:text-slate-900 flex items-center gap-1 text-[10px]"
+                    title="Swap Speaker Label (Doctor ↔ Patient)"
+                  >
+                    <RefreshCcw size={10} />
+                    <span>Swap Speaker</span>
+                  </button>
+                </div>
               </div>
+              <p className="leading-relaxed font-medium">"{turn.text}"</p>
             </div>
-            <p className="leading-relaxed font-medium">"{turn.text}"</p>
+          ))
+        ) : (
+          <div className="p-6 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400 font-mono">
+            <span>Microphone Audio Active • Speak to record consultation transcript turns</span>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

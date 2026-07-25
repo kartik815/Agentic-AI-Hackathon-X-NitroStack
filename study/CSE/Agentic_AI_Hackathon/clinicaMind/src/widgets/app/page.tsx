@@ -142,6 +142,7 @@ export default function ClinicaMindWorkspace() {
             transcript={transcript}
             onRefresh={() => runOrchestration(transcript, patientId)}
             isLoading={isLoading}
+            graphData={graphData}
           />
 
           {/* Live Audio Stream Recorder & Diarization Component */}
