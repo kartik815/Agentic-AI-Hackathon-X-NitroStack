@@ -28,30 +28,28 @@ export function AudioStreamRecorder({
   const [micStatus, setMicStatus] = useState<'READY' | 'RECORDING' | 'PERMISSION_DENIED' | 'UNSUPPORTED' | 'DISCONNECTED'>('READY');
   const [audioError, setAudioError] = useState<string | null>(null);
 
-  // Server-Side STT Proxy Diagnostics State
+  // Bi-Directional WebSocket Bridge Diagnostics State
   const [diagnostics, setDiagnostics] = useState<{
-    browserToServer: string;
-    serverToDeepgram: string;
+    wsState: string;
+    deepgramState: string;
     mediaRecorderState: 'inactive' | 'recording' | 'paused';
     recorderMimeType: string;
-    packetsForwarded: number;
-    bytesForwarded: number;
+    packetsSent: number;
+    bytesSent: number;
     lastChunkSize: number | null;
     transcriptEventsReceived: number;
     firstTranscriptReceived: boolean;
-    rawJsonSnippet: string;
     failureReason: string;
   }>({
-    browserToServer: 'Idle',
-    serverToDeepgram: 'Idle',
+    wsState: 'Disconnected',
+    deepgramState: 'Pending',
     mediaRecorderState: 'inactive',
     recorderMimeType: 'N/A',
-    packetsForwarded: 0,
-    bytesForwarded: 0,
+    packetsSent: 0,
+    bytesSent: 0,
     lastChunkSize: null,
     transcriptEventsReceived: 0,
     firstTranscriptReceived: false,
-    rawJsonSnippet: 'None received yet',
     failureReason: ''
   });
 
@@ -61,8 +59,8 @@ export function AudioStreamRecorder({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Initialize Web Audio API Analyser & Canvas Visualizer
   const setupAudioContext = (stream: MediaStream) => {
@@ -124,12 +122,9 @@ export function AudioStreamRecorder({
     renderFrame();
   };
 
-  // Start Server-Side STT Stream Proxy via POST /api/stt/stream with SSE
-  const startServerSttStream = (stream: MediaStream) => {
+  // Start Bi-Directional WebSocket Connection to Node.js STT Server (ws://localhost:3002)
+  const startWebSocketBridge = (stream: MediaStream) => {
     try {
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-
       let mimeType = 'audio/webm';
       if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         mimeType = 'audio/webm;codecs=opus';
@@ -137,141 +132,112 @@ export function AudioStreamRecorder({
         mimeType = 'audio/ogg;codecs=opus';
       }
 
+      const wsUrl = `ws://localhost:3002`;
+      console.log('🌐 [Connecting to STT WebSocket Server]:', wsUrl);
+
       setDiagnostics((prev) => ({
         ...prev,
-        browserToServer: 'Connecting to /api/stt/stream...',
+        wsState: 'Connecting...',
         recorderMimeType: mimeType
       }));
 
-      // Create a ReadableStream of Uint8Array chunks from MediaRecorder
-      let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
-      const audioStream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          streamController = controller;
-        }
-      });
+      const ws = new WebSocket(wsUrl);
 
+      ws.onopen = () => {
+        console.log('✅ [STT WebSocket Bridge Connected]');
+        setDiagnostics((prev) => ({
+          ...prev,
+          wsState: 'Connected (ws://localhost:3002)'
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        console.log('Transcript received:', event.data);
+        try {
+          const payload = JSON.parse(event.data);
+
+          if (payload.type === 'status') {
+            setDiagnostics((prev) => ({
+              ...prev,
+              deepgramState: payload.message
+            }));
+          } else if (payload.type === 'transcript') {
+            setDiagnostics((prev) => ({
+              ...prev,
+              transcriptEventsReceived: prev.transcriptEventsReceived + 1,
+              firstTranscriptReceived: true
+            }));
+
+            if (payload.isFinal) {
+              addTurn(payload.speaker || 'Doctor', payload.text, payload.confidence || 0.95, true);
+              setInterimText('');
+              console.log('Supervisor triggered');
+            } else {
+              setInterimText(payload.text);
+            }
+          } else if (payload.type === 'error') {
+            setDiagnostics((prev) => ({
+              ...prev,
+              failureReason: payload.message
+            }));
+          }
+        } catch (err) {
+          console.error('Error parsing WebSocket JSON:', err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('❌ [STT WebSocket Error]:', error);
+        setDiagnostics((prev) => ({
+          ...prev,
+          wsState: 'Error',
+          failureReason: 'WebSocket bridge connection error. Verify stt-websocket-server is running on port 3002.'
+        }));
+      };
+
+      ws.onclose = () => {
+        console.log('🚪 [STT WebSocket Closed]');
+        setDiagnostics((prev) => ({
+          ...prev,
+          wsState: 'Closed'
+        }));
+      };
+
+      wsRef.current = ws;
+
+      // Start MediaRecorder and transmit audio chunks via WebSocket
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
 
-      mediaRecorder.ondataavailable = async (event) => {
-        if (event.data && event.data.size > 0 && streamController) {
-          const buffer = await event.data.arrayBuffer();
-          streamController.enqueue(new Uint8Array(buffer));
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(event.data);
+            console.log('Packet sent');
 
-          setDiagnostics((prev) => ({
-            ...prev,
-            lastChunkSize: event.data.size,
-            packetsForwarded: prev.packetsForwarded + 1,
-            bytesForwarded: prev.bytesForwarded + event.data.size
-          }));
+            setDiagnostics((prev) => ({
+              ...prev,
+              packetsSent: prev.packetsSent + 1,
+              bytesSent: prev.bytesSent + event.data.size,
+              lastChunkSize: event.data.size
+            }));
+          }
         }
       };
 
       mediaRecorder.start(250);
       mediaRecorderRef.current = mediaRecorder;
+      console.log('Recorder started');
 
       setDiagnostics((prev) => ({
         ...prev,
-        mediaRecorderState: 'recording',
-        browserToServer: '✅ Browser ➔ Server Stream Active'
+        mediaRecorderState: 'recording'
       }));
 
-      // Post Audio ReadableStream to Next.js API Route /api/stt/stream
-      fetch('/api/stt/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: audioStream,
-        signal: abortController.signal,
-        // @ts-ignore - duplext: 'half' required for streaming fetch body
-        duplex: 'half'
-      })
-        .then(async (response) => {
-          if (!response.ok) {
-            const errJson = await response.json().catch(() => ({}));
-            const msg = errJson.message || `Server returned status ${response.status}`;
-            console.error('❌ [/api/stt/stream Response Error]:', msg);
-            setDiagnostics((prev) => ({
-              ...prev,
-              serverToDeepgram: '❌ Server Error',
-              failureReason: msg
-            }));
-            return;
-          }
-
-          setDiagnostics((prev) => ({
-            ...prev,
-            serverToDeepgram: '✅ Server ➔ Deepgram Connected'
-          }));
-
-          // Read Server-Sent Events (SSE) from response stream
-          const reader = response.body?.getReader();
-          if (!reader) return;
-
-          const decoder = new TextDecoder();
-          let bufferStr = '';
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            bufferStr += decoder.decode(value, { stream: true });
-            const lines = bufferStr.split('\n\n');
-            bufferStr = lines.pop() || '';
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const jsonText = line.substring(6).trim();
-                try {
-                  const eventData = JSON.parse(jsonText);
-
-                  if (eventData.type === 'status') {
-                    setDiagnostics((prev) => ({
-                      ...prev,
-                      serverToDeepgram: eventData.message
-                    }));
-                  } else if (eventData.type === 'transcript') {
-                    setDiagnostics((prev) => ({
-                      ...prev,
-                      transcriptEventsReceived: prev.transcriptEventsReceived + 1,
-                      firstTranscriptReceived: true,
-                      rawJsonSnippet: eventData.rawJsonSnippet || eventData.text
-                    }));
-
-                    if (eventData.isFinal) {
-                      addTurn(eventData.speaker || 'Doctor', eventData.text, eventData.confidence || 0.95, true);
-                      setInterimText('');
-                    } else {
-                      setInterimText(eventData.text);
-                    }
-                  } else if (eventData.type === 'error') {
-                    setDiagnostics((prev) => ({
-                      ...prev,
-                      failureReason: eventData.message
-                    }));
-                  }
-                } catch (e) {
-                  console.warn('SSE JSON parse error:', e);
-                }
-              }
-            }
-          }
-        })
-        .catch((err) => {
-          if (err.name !== 'AbortError') {
-            console.error('❌ [STT Streaming Fetch Error]:', err);
-            setDiagnostics((prev) => ({
-              ...prev,
-              browserToServer: '❌ Fetch Error',
-              failureReason: err.message || 'Failed to stream audio to server API'
-            }));
-          }
-        });
-
     } catch (err: any) {
-      console.error('❌ [startServerSttStream Error]:', err);
+      console.error('❌ [startWebSocketBridge Exception]:', err);
       setDiagnostics((prev) => ({
         ...prev,
-        failureReason: `Failed to initialize server STT stream: ${err.message || err}`
+        failureReason: `Failed to initialize STT WebSocket bridge: ${err.message || err}`
       }));
     }
   };
@@ -312,6 +278,7 @@ export function AudioStreamRecorder({
         activeStream = stream;
         mediaStreamRef.current = stream;
         setMicStatus('RECORDING');
+        console.log('Microphone opened');
 
         const audioTrack = stream.getAudioTracks()[0];
         const settings = audioTrack.getSettings();
@@ -324,8 +291,8 @@ export function AudioStreamRecorder({
         // 1. Setup Web Audio API Analyser & Canvas Visualizer
         setupAudioContext(stream);
 
-        // 2. Start Server-Side STT Proxy Stream (Audio ➔ POST /api/stt/stream ➔ Deepgram WS ➔ SSE Transcripts)
-        startServerSttStream(stream);
+        // 2. Start Bi-Directional STT WebSocket Bridge (ws://localhost:3002)
+        startWebSocketBridge(stream);
 
         // Handle track disconnects
         audioTrack.onended = () => {
@@ -346,8 +313,9 @@ export function AudioStreamRecorder({
     };
 
     const stopMicStream = () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
       }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -366,8 +334,8 @@ export function AudioStreamRecorder({
       setDiagnostics((prev) => ({
         ...prev,
         mediaRecorderState: 'inactive',
-        browserToServer: 'Idle',
-        serverToDeepgram: 'Idle'
+        wsState: 'Disconnected',
+        deepgramState: 'Idle'
       }));
     };
 
@@ -415,12 +383,12 @@ export function AudioStreamRecorder({
           </div>
           <div>
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-              Server-Side STT Stream Proxy & Automatic Diarization
+              Bi-Directional STT WebSocket Bridge & Diarization
               <span className={isListening ? 'badge-critical animate-pulse' : 'badge-normal'}>
                 {micStatus === 'RECORDING' ? 'LIVE MIC RECORDING' : micStatus === 'PERMISSION_DENIED' ? 'PERM DENIED' : 'AUDIO READY'}
               </span>
             </h3>
-            <p className="text-xs text-slate-500 font-medium">Server-side Deepgram proxy (/api/stt/stream) with zero direct browser websocket calls</p>
+            <p className="text-xs text-slate-500 font-medium">Bi-directional WebSocket connection to stt-websocket-server (ws://localhost:3002)</p>
           </div>
         </div>
 
@@ -482,33 +450,33 @@ export function AudioStreamRecorder({
         <div className="flex items-center justify-between border-b border-slate-800 pb-2">
           <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs">
             <Terminal size={14} />
-            <span>Server STT Proxy Pipeline Diagnostics:</span>
+            <span>WebSocket Bridge Real-Time Diagnostics:</span>
           </div>
-          <span className="text-[10px] text-slate-400">POST /api/stt/stream (SSE)</span>
+          <span className="text-[10px] text-slate-400">ws://localhost:3002</span>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
-          {/* Browser to Server */}
+          {/* WebSocket Bridge */}
           <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-            <span className="text-[10px] text-slate-400 block">Browser ➔ Server:</span>
-            <span className={`font-bold block mt-0.5 ${diagnostics.browserToServer.includes('✅') ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {diagnostics.browserToServer}
+            <span className="text-[10px] text-slate-400 block">WebSocket Bridge:</span>
+            <span className={`font-bold block mt-0.5 ${diagnostics.wsState.includes('Connected') ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {diagnostics.wsState}
             </span>
           </div>
 
-          {/* Server to Deepgram */}
+          {/* Deepgram State */}
           <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-            <span className="text-[10px] text-slate-400 block">Server ➔ Deepgram:</span>
-            <span className={`font-bold block mt-0.5 ${diagnostics.serverToDeepgram.includes('✅') ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {diagnostics.serverToDeepgram}
+            <span className="text-[10px] text-slate-400 block">Deepgram SDK:</span>
+            <span className={`font-bold block mt-0.5 ${diagnostics.deepgramState.includes('Connected') ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {diagnostics.deepgramState}
             </span>
           </div>
 
-          {/* Audio Chunks Forwarded */}
+          {/* Audio Chunks Sent */}
           <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-            <span className="text-[10px] text-slate-400 block">Packets Forwarded:</span>
+            <span className="text-[10px] text-slate-400 block">Packets Transmitted:</span>
             <span className="font-bold text-slate-200 block mt-0.5">
-              {diagnostics.packetsForwarded} ({diagnostics.bytesForwarded} bytes)
+              {diagnostics.packetsSent} ({diagnostics.bytesSent} bytes)
             </span>
           </div>
 
@@ -536,7 +504,7 @@ export function AudioStreamRecorder({
         {diagnostics.failureReason && (
           <div className="p-2.5 bg-red-950/60 border border-red-800 rounded-lg text-red-300 text-[11px] font-sans flex items-start gap-2">
             <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
-            <span><strong>STT Proxy Notice:</strong> {diagnostics.failureReason}</span>
+            <span><strong>STT Bridge Notice:</strong> {diagnostics.failureReason}</span>
           </div>
         )}
       </div>

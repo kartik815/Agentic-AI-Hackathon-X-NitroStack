@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001 --port 3001",
+    "stt-server": "tsx server/stt-websocket-server.ts",
     "build": "next build",
     "start": "next start -p 3001"
   },
@@ -31,6 +32,7 @@
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
+    "tsx": "^4.19.2",
     "typescript": "^5"
   }
 }
