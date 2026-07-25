@@ -298,7 +298,7 @@
   border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
-  shrink: 0;
+  flex-shrink: 0;
   z-index: 30;
 }
 
