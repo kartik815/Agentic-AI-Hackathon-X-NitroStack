@@ -202,19 +202,29 @@ export class GmailService {
   }
 
   /**
-   * RefreshAccessToken Function: Uses refresh token to retrieve a fresh access token
+   * Detailed Token Refresh Function: Exchanges refresh token for a fresh access token & returns diagnostics
    */
-  static async refreshAccessToken(): Promise<string | null> {
+  static async refreshAccessTokenDetails(): Promise<{
+    accessToken: string | null;
+    refreshTokenExists: boolean;
+    expiresIn?: number;
+    expiresAt?: string;
+    error?: string;
+  }> {
     const state = this.loadState();
+    const refreshTokenExists = Boolean(state.refreshToken);
+
     if (!state.connected || !state.refreshToken) {
-      return null;
+      const reason = !state.connected ? 'Gmail is not connected in state' : 'No stored refresh token found in state';
+      return { accessToken: null, refreshTokenExists, error: reason };
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) {
-      return null;
+      const reason = 'Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET environment variables';
+      return { accessToken: null, refreshTokenExists, error: reason };
     }
 
     try {
@@ -231,22 +241,40 @@ export class GmailService {
 
       const data: any = await res.json();
       if (res.ok && data.access_token) {
+        const expiresIn = data.expires_in || 3600;
+        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
         this.saveState({
           ...state,
           lastSyncTime: new Date().toISOString()
         });
-        return data.access_token;
-      }
-    } catch (e) {
-      console.error('[GmailService] Error refreshing access token:', e);
-    }
 
-    return null;
+        return {
+          accessToken: data.access_token,
+          refreshTokenExists: true,
+          expiresIn,
+          expiresAt
+        };
+      } else {
+        const errorMsg = data.error_description || data.error || `HTTP ${res.status} token exchange failure`;
+        return { accessToken: null, refreshTokenExists: true, error: errorMsg };
+      }
+    } catch (e: any) {
+      return { accessToken: null, refreshTokenExists: true, error: e?.message || 'Token refresh network exception' };
+    }
+  }
+
+  /**
+   * RefreshAccessToken Function: Compatibility helper returning string | null
+   */
+  static async refreshAccessToken(): Promise<string | null> {
+    const details = await this.refreshAccessTokenDetails();
+    return details.accessToken;
   }
 
   /**
    * Debug & Diagnostic listIntakeEmails Function
-   * Logs pre-call status, post-call HTTP status & response, result size, and message IDs.
+   * Verifies access token refresh, logs pre-call token status, post-call HTTP status & response.
    */
   static async listIntakeEmails(): Promise<{
     connected: boolean;
@@ -264,16 +292,33 @@ export class GmailService {
   }> {
     const state = this.loadState();
     const accountEmail = state.email || 'Unknown';
-    const accessToken = await this.refreshAccessToken();
+
+    // Task 2 & 5: Ensure token refresh is executed before every Gmail API request
+    const tokenInfo = await this.refreshAccessTokenDetails();
+    const accessToken = tokenInfo.accessToken;
+
+    const authHeader = accessToken ? `Bearer ${accessToken}` : '';
+    const maskedAuthHeader = accessToken
+      ? `Bearer ${accessToken.substring(0, 10)}...${accessToken.slice(-6)}`
+      : 'NONE (No Authorization Header Present)';
+
     const query = 'subject:"NEW PATIENT"';
 
-    // Requirement 2: Log BEFORE API call
+    // Task 3: Log Pre-Call Token Check
     console.log(`==========================================`);
-    console.log(`[GmailSearch Diagnostics] BEFORE API CALL:`);
-    console.log(`- Connected Gmail Account: ${accountEmail}`);
-    console.log(`- Search Query: "${query}"`);
-    console.log(`- Access Token Status: ${accessToken ? 'Valid Token Obtained' : 'Expired / Missing Token'}`);
+    console.log(`[Gmail Token & API Diagnostics] PRE-CALL TOKEN CHECK:`);
+    console.log(`- Refresh token exists?: ${tokenInfo.refreshTokenExists ? 'Yes' : 'No'}`);
+    console.log(`- Access token successfully obtained?: ${accessToken ? 'Yes' : 'No'}`);
+    console.log(`- Access token expiry: ${tokenInfo.expiresIn ? `${tokenInfo.expiresIn} seconds (Expires at ${tokenInfo.expiresAt})` : 'N/A'}`);
+    console.log(`- Authorization header actually sent to Gmail API: ${maskedAuthHeader}`);
     console.log(`==========================================`);
+
+    // Task 7: If no Authorization header is present, identify why
+    if (!authHeader) {
+      console.error(`[Gmail Token Debug] ❌ NO AUTHORIZATION HEADER PRESENT!`);
+      console.error(`- Reason: ${tokenInfo.error || 'Unknown token retrieval error'}`);
+      console.error(`- Refresh Token Exists in storage: ${tokenInfo.refreshTokenExists ? 'Yes' : 'No'}`);
+    }
 
     if (!accessToken) {
       return {
@@ -282,28 +327,30 @@ export class GmailService {
         emails: [],
         query,
         accountEmail,
-        apiError: 'Gmail integration is not connected or token is expired.',
-        message: 'Gmail integration is not connected.'
+        apiError: `Token Exchange Error: ${tokenInfo.error || 'Failed to acquire access token'}`,
+        message: 'Gmail integration access token missing.'
       };
     }
 
     const messagesUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&includeSpamTrash=true`;
 
     const res = await fetch(messagesUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` }
+      headers: { Authorization: authHeader }
     });
 
     const httpStatus = res.status;
     const data: any = await res.json();
 
-    // Requirement 3: Log AFTER API response
+    // Task 6: Print Authorization header (masked), HTTP status from Gmail, Full Gmail error body
     console.log(`==========================================`);
-    console.log(`[GmailSearch Diagnostics] AFTER API RESPONSE:`);
-    console.log(`- HTTP Status: ${httpStatus} ${res.statusText}`);
-    console.log(`- Entire Gmail API Response Payload:`, JSON.stringify(data));
+    console.log(`[Gmail Token & API Diagnostics] POST-CALL API RESPONSE:`);
+    console.log(`- Authorization header (masked): ${maskedAuthHeader}`);
+    console.log(`- HTTP status from Gmail: ${httpStatus} ${res.statusText}`);
+    console.log(`- Full Gmail error body / payload:`, JSON.stringify(data, null, 2));
+    console.log(`==========================================`);
 
     if (!res.ok) {
-      console.error(`[GmailSearch Diagnostics] ❌ Gmail API Returned Error:`, data);
+      console.error(`[Gmail API Error] HTTP ${httpStatus}:`, data);
       return {
         connected: true,
         count: 0,
@@ -311,7 +358,7 @@ export class GmailService {
         query,
         accountEmail,
         httpStatus,
-        apiError: data.error?.message || `HTTP ${httpStatus} Error`,
+        apiError: data.error?.message || `HTTP ${httpStatus} Gmail API Error`,
         message: data.error?.message || 'Failed to list Gmail messages.'
       };
     }
@@ -353,7 +400,7 @@ export class GmailService {
     for (const msgItem of messageItems.slice(0, 20)) {
       try {
         const detailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgItem.id}?format=full`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
+          headers: { Authorization: authHeader }
         });
 
         if (!detailRes.ok) {
