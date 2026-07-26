@@ -57,3 +57,5 @@ data/
 *.key
 tokens.json
 .nitrostudio/
+
+/src/generated/prisma
