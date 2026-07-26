@@ -14,9 +14,13 @@ import {
   FolderOpen,
   HardDrive,
   Cpu,
-  AlertCircle
+  AlertCircle,
+  Copy,
+  Download,
+  RefreshCw
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export interface IntakeSessionData {
   sessionId: string;
@@ -39,9 +43,20 @@ export interface IntakeSessionData {
 }
 
 export default function DocumentProcessingPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<IntakeSessionData | null>(null);
   const [ocrNotice, setOcrNotice] = useState<string | null>(null);
+  const [isOcrRunning, setIsOcrRunning] = useState(false);
+  const [ocrResult, setOcrResult] = useState<{
+    processingStatus: string;
+    pagesProcessed: number;
+    characterCount: number;
+    confidence: string;
+    rawText: string;
+  } | null>(null);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [copyBadge, setCopyBadge] = useState(false);
 
   const fetchSessionData = async () => {
     setLoading(true);
@@ -85,8 +100,64 @@ export default function DocumentProcessingPage() {
     fetchSessionData();
   }, []);
 
-  const handleStartOCR = () => {
-    setOcrNotice('OCR pipeline not yet implemented.');
+  const handleStartOCR = async () => {
+    if (!session || !session.documents || session.documents.length === 0) return;
+    setIsOcrRunning(true);
+    setOcrError(null);
+    setOcrNotice(null);
+
+    try {
+      const res = await fetch('/api/integrations/gmail/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: session.sessionId,
+          documents: session.documents
+        })
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.status === 'success' && json.ocrResult) {
+          setOcrResult(json.ocrResult);
+        } else {
+          setOcrError(json.message || 'OCR extraction failed.');
+        }
+      } else {
+        const errorJson = await res.json();
+        setOcrError(errorJson.message || `HTTP ${res.status} OCR Error`);
+      }
+    } catch (e: any) {
+      console.error('Error running OCR engine:', e);
+      setOcrError(e?.message || 'Network exception during OCR processing.');
+    } finally {
+      setIsOcrRunning(false);
+    }
+  };
+
+  const handleCopyText = () => {
+    if (!ocrResult?.rawText) return;
+    navigator.clipboard.writeText(ocrResult.rawText);
+    setCopyBadge(true);
+    setTimeout(() => setCopyBadge(false), 2000);
+  };
+
+  const handleDownloadOcrText = () => {
+    if (!ocrResult?.rawText) return;
+    const blob = new Blob([ocrResult.rawText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${session?.sessionId || 'Intake'}_OCR_Extracted_Text.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleContinueToAiExtraction = () => {
+    if (!ocrResult) return;
+    router.push('/settings/integrations/gmail/extraction');
   };
 
   return (
@@ -271,6 +342,132 @@ export default function DocumentProcessingPage() {
                 })}
               </div>
             )}
+          </div>
+
+          {/* OCR Results Section (Rendered below document preview) */}
+          <div className="bg-white border-2 border-indigo-200 rounded-3xl p-6 space-y-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-600 text-white rounded-2xl shadow-xs">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                    OCR Results
+                    {ocrResult && (
+                      <span className="text-xs font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold">
+                        {ocrResult.processingStatus}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-sans">
+                    Unedited raw text extracted from documents preserving page order. No AI cleaning applied.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons: Retry OCR, Copy Text, Download OCR Text (.txt), Continue to AI Extraction */}
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <button
+                  onClick={handleStartOCR}
+                  disabled={isOcrRunning}
+                  className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition border border-slate-200 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={isOcrRunning ? 'animate-spin' : ''} />
+                  <span>Retry OCR</span>
+                </button>
+
+                <button
+                  onClick={handleCopyText}
+                  disabled={!ocrResult}
+                  className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition border border-slate-200 cursor-pointer disabled:opacity-50"
+                >
+                  <Copy size={13} />
+                  <span>{copyBadge ? 'Copied! ✓' : 'Copy Text'}</span>
+                </button>
+
+                <button
+                  onClick={handleDownloadOcrText}
+                  disabled={!ocrResult}
+                  className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs px-3.5 py-2 rounded-xl transition border border-indigo-200 cursor-pointer disabled:opacity-50"
+                >
+                  <Download size={13} />
+                  <span>Download OCR Text (.txt)</span>
+                </button>
+
+                {/* Continue to AI Extraction - Remains disabled until OCR completes successfully */}
+                <button
+                  onClick={handleContinueToAiExtraction}
+                  disabled={!ocrResult || isOcrRunning}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md shadow-emerald-200 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span>Continue to AI Extraction →</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Error Display */}
+            {ocrError && (
+              <div className="p-4 bg-red-50 border border-red-200 text-red-900 rounded-2xl text-xs font-mono font-semibold flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={16} className="text-red-600 shrink-0" />
+                  <span>OCR Failed: {ocrError}</span>
+                </div>
+                <button onClick={handleStartOCR} className="text-red-700 hover:text-red-950 font-bold px-3 py-1 bg-red-100 rounded-lg text-xs">
+                  Retry OCR
+                </button>
+              </div>
+            )}
+
+            {/* OCR Telemetry Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Processing Status:</span>
+                <span className={`font-bold block ${ocrResult ? 'text-emerald-700' : 'text-slate-600'}`}>
+                  {isOcrRunning ? 'Processing OCR...' : ocrResult?.processingStatus || 'Awaiting OCR Run'}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Pages Processed:</span>
+                <span className="font-bold text-slate-900 text-sm block">
+                  {ocrResult ? `${ocrResult.pagesProcessed} Page(s)` : '-'}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">Character Count:</span>
+                <span className="font-bold text-indigo-700 text-sm block">
+                  {ocrResult ? `${ocrResult.characterCount.toLocaleString()} chars` : '-'}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold mb-1">OCR Confidence:</span>
+                <span className="font-bold text-emerald-700 text-sm block">
+                  {ocrResult ? ocrResult.confidence : '-'}
+                </span>
+              </div>
+            </div>
+
+            {/* Large Scrollable Text Area Displaying Exact Raw Extracted Text */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-mono text-slate-500">
+                <span className="font-bold uppercase tracking-wider text-[10px]">Extracted Raw Text Output</span>
+                <span>No AI Summarization • Raw OCR Streams</span>
+              </div>
+
+              <textarea
+                readOnly
+                value={
+                  isOcrRunning
+                    ? 'OCR Engine is processing documents...\nExtracting raw page characters preserving layout...'
+                    : ocrResult?.rawText || 'Click "Start OCR" above to run raw text extraction across selected documents.'
+                }
+                rows={14}
+                className="w-full bg-slate-900 text-emerald-400 font-mono text-xs p-5 rounded-2xl border border-slate-800 focus:outline-none leading-relaxed shadow-inner resize-y"
+              />
+            </div>
           </div>
         </div>
       </main>
