@@ -206,14 +206,24 @@ export default function GmailIntegrationPage() {
                     <span>Using server-stored refresh token. Scope: <code>gmail.readonly</code></span>
                   </div>
 
-                  <button
-                    onClick={handleDisconnectGmail}
-                    disabled={isDisconnecting}
-                    className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs px-4 py-2.5 rounded-xl transition"
-                  >
-                    <Unplug size={16} />
-                    <span>{isDisconnecting ? 'Disconnecting...' : 'Disconnect'}</span>
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href="/settings/integrations/gmail/inbox"
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md shadow-indigo-200 transition"
+                    >
+                      <Mail size={16} />
+                      <span>View Patient Intake Inbox →</span>
+                    </Link>
+
+                    <button
+                      onClick={handleDisconnectGmail}
+                      disabled={isDisconnecting}
+                      className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs px-4 py-2.5 rounded-xl transition"
+                    >
+                      <Unplug size={16} />
+                      <span>{isDisconnecting ? 'Disconnecting...' : 'Disconnect'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (

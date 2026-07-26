@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
+import { IntakeRepository } from '../../../../../../db/repositories/intake.repository';
 
 export const dynamic = 'force-dynamic';
-import { IntakeRepository } from '../../../../../../db/repositories/intake.repository';
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {

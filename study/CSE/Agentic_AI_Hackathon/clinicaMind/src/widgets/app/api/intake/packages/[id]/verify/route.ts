@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
+import { DatabasePopulationAgent } from '../../../../../../../services/intake/database-population.agent';
 
 export const dynamic = 'force-dynamic';
-import { DatabasePopulationAgent } from '../../../../../../../services/intake/database-population.agent';
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {

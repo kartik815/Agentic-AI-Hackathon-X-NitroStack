@@ -12,7 +12,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const host = request.headers.get('host') || 'localhost:3000';
+    const host = request.headers.get('host') || 'localhost:3001';
     const protocol = host.includes('localhost') ? 'http' : 'https';
     const redirectUri = `${protocol}://${host}/api/integrations/gmail/callback`;
 
