@@ -21,6 +21,8 @@ export default function GmailIntakeInboxPage() {
 
   const [downloadingMap, setDownloadingMap] = useState<Record<string, boolean>>({});
   const [downloadedMap, setDownloadedMap] = useState<Record<string, { filename: string; mimeType: string; size: string; localPath: string }>>({});
+  const [selectedAttachments, setSelectedAttachments] = useState<Record<string, boolean>>({});
+  const [collectedStatus, setCollectedStatus] = useState<string | null>(null);
 
   const fetchInbox = async () => {
     setLoading(true);
@@ -88,6 +90,25 @@ export default function GmailIntakeInboxPage() {
     } finally {
       setDownloadingMap((prev) => ({ ...prev, [key]: false }));
     }
+  };
+
+  const toggleSelectAttachment = (key: string) => {
+    setSelectedAttachments((prev) => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const handleProcessSelected = (email: any) => {
+    const selectedList = (email.attachments || []).filter((att: any) => {
+      const key = `${email.id}_${att.attachmentId || att.fileName}`;
+      return Boolean(selectedAttachments[key]);
+    });
+
+    const names = selectedList.map((a: any) => a.fileName).join(', ');
+    setCollectedStatus(
+      `Collected ${selectedList.length} selected document(s) for processing: [${names}]. No OCR, AI, or database modification performed.`
+    );
   };
 
   const getFileType = (fileName: string, mimeType?: string): string => {
@@ -298,61 +319,221 @@ export default function GmailIntakeInboxPage() {
                           </div>
                         </div>
 
-                        {/* Attachments Section */}
-                        <div className="space-y-2">
+                        {/* Document Review Workspace */}
+                        <div className="border-t border-slate-200/80 pt-5 space-y-4">
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                              Attached Documents ({email.attachmentCount})
-                            </span>
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider font-mono flex items-center gap-2">
+                                <span>📄 Document Review Workspace</span>
+                                <span className="text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-bold">
+                                  {email.attachments?.length || 0} Attachments
+                                </span>
+                              </h4>
+                              <p className="text-[11px] text-slate-500 font-sans mt-0.5">
+                                Preview documents, select items with "Include in Intake", and click Process Selected Documents.
+                              </p>
+                            </div>
+
+                            {/* Process Selected Documents Button */}
+                            {email.attachments && email.attachments.length > 0 && (() => {
+                              const selectedCount = email.attachments.filter((att: any) => {
+                                const key = `${email.id}_${att.attachmentId || att.fileName}`;
+                                return Boolean(selectedAttachments[key]);
+                              }).length;
+
+                              return (
+                                <div className="flex items-center gap-3">
+                                  {selectedCount > 0 && (
+                                    <span className="text-xs font-mono font-bold text-indigo-600">
+                                      {selectedCount} Selected
+                                    </span>
+                                  )}
+                                  <button
+                                    onClick={() => handleProcessSelected(email)}
+                                    disabled={selectedCount === 0}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+                                  >
+                                    <span>Process Selected Documents</span>
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </div>
 
+                          {collectedStatus && (
+                            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-mono font-semibold flex items-center justify-between shadow-2xs">
+                              <span>✓ {collectedStatus}</span>
+                              <button onClick={() => setCollectedStatus(null)} className="text-emerald-600 hover:text-emerald-900 text-xs font-bold">✕</button>
+                            </div>
+                          )}
+
                           {email.attachments && email.attachments.length > 0 ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 gap-6">
                               {email.attachments.map((att: any, idx: number) => {
                                 const key = `${email.id}_${att.attachmentId || att.fileName}`;
                                 const isDownloading = Boolean(downloadingMap[key]);
                                 const downloadedData = downloadedMap[key];
                                 const isDownloaded = Boolean(downloadedData);
+                                const isSelected = Boolean(selectedAttachments[key]);
                                 const fileType = getFileType(att.fileName, att.mimeType);
+
+                                const fileUrl = downloadedData?.localPath
+                                  ? `/api/integrations/gmail/file?path=${encodeURIComponent(downloadedData.localPath)}`
+                                  : `/api/integrations/gmail/file?file=${encodeURIComponent(att.fileName)}`;
 
                                 return (
                                   <div
                                     key={idx}
-                                    className="bg-white border border-slate-200/80 p-3.5 rounded-xl flex items-center justify-between text-xs shadow-2xs gap-3"
+                                    className={`bg-white border-2 rounded-2xl p-5 space-y-4 transition shadow-xs ${
+                                      isSelected ? 'border-indigo-500 ring-2 ring-indigo-50/50' : 'border-slate-200/80 hover:border-slate-300'
+                                    }`}
                                   >
-                                    <div className="flex items-center gap-2.5 overflow-hidden flex-1">
-                                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0">
-                                        <Paperclip size={14} />
-                                      </div>
-                                      <div className="truncate">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-bold text-slate-900 block truncate">{att.fileName}</span>
-                                          <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded shrink-0">
-                                            {fileType}
-                                          </span>
-                                        </div>
-                                        <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
+                                    {/* Header Controls & Metadata */}
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-3 flex-wrap gap-2">
+                                      <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => toggleSelectAttachment(key)}
+                                          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                        <span className="text-xs font-bold text-slate-900 hover:text-indigo-600 transition">
+                                          Include in Intake
+                                        </span>
+                                      </label>
+
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-xs font-bold text-slate-900 font-sans">{att.fileName}</span>
+                                        <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded">
+                                          {fileType}
+                                        </span>
+                                        <span className="text-xs text-slate-500 font-mono">
                                           {downloadedData?.size || att.fileSize}
                                         </span>
+
+                                        {!isDownloaded && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDownloadAttachment(email.id, att);
+                                            }}
+                                            disabled={isDownloading}
+                                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-3 py-1 rounded-lg transition disabled:opacity-50 cursor-pointer shadow-2xs"
+                                          >
+                                            {isDownloading ? 'Downloading...' : 'Download Attachment'}
+                                          </button>
+                                        )}
+                                        {isDownloaded && (
+                                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                                            Downloaded ✓
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
 
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      {isDownloaded ? (
-                                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1">
-                                          Downloaded ✓
-                                        </span>
+                                    {/* Document Preview Rendering Area */}
+                                    <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 min-h-[160px] flex flex-col justify-center items-center">
+                                      {fileType === 'PDF' ? (
+                                        <div className="w-full space-y-2">
+                                          <div className="flex items-center justify-between text-[11px] font-mono text-slate-500">
+                                            <span>PDF Preview</span>
+                                            {isDownloaded && (
+                                              <a href={fileUrl} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                                                Open Full Window ↗
+                                              </a>
+                                            )}
+                                          </div>
+                                          {isDownloaded ? (
+                                            <iframe
+                                              src={fileUrl}
+                                              className="w-full h-80 rounded-xl border border-slate-200 shadow-2xs bg-white"
+                                              title={att.fileName}
+                                            />
+                                          ) : (
+                                            <div className="text-center p-6 space-y-2">
+                                              <p className="text-xs text-slate-600 font-medium">PDF Document: {att.fileName}</p>
+                                              <button
+                                                onClick={() => handleDownloadAttachment(email.id, att)}
+                                                disabled={isDownloading}
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-2xs cursor-pointer"
+                                              >
+                                                {isDownloading ? 'Downloading PDF...' : 'Download & Render PDF Preview'}
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP'].includes(fileType) ? (
+                                        <div className="w-full space-y-2">
+                                          <div className="text-[11px] font-mono text-slate-500">Image Preview</div>
+                                          {isDownloaded ? (
+                                            <img
+                                              src={fileUrl}
+                                              alt={att.fileName}
+                                              className="max-h-80 object-contain rounded-xl mx-auto border border-slate-200 shadow-2xs bg-white p-2"
+                                            />
+                                          ) : (
+                                            <div className="text-center p-6 space-y-2">
+                                              <p className="text-xs text-slate-600 font-medium">Image File: {att.fileName}</p>
+                                              <button
+                                                onClick={() => handleDownloadAttachment(email.id, att)}
+                                                disabled={isDownloading}
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-2xs cursor-pointer"
+                                              >
+                                                {isDownloading ? 'Downloading Image...' : 'Download & Render Image Preview'}
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : fileType === 'DOCX' || att.fileName.endsWith('.docx') || att.fileName.endsWith('.doc') ? (
+                                        <div className="w-full p-6 text-center space-y-3 bg-white rounded-xl border border-slate-200">
+                                          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mx-auto border border-blue-200 font-bold text-xs font-mono">
+                                            DOCX
+                                          </div>
+                                          <div>
+                                            <h5 className="font-bold text-sm text-slate-900">{att.fileName}</h5>
+                                            <p className="text-xs text-slate-500 font-mono mt-0.5">Microsoft Word Document ({att.fileSize})</p>
+                                          </div>
+                                          {isDownloaded ? (
+                                            <a
+                                              href={fileUrl}
+                                              download={att.fileName}
+                                              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-2xs"
+                                            >
+                                              Download DOCX File 📥
+                                            </a>
+                                          ) : (
+                                            <button
+                                              onClick={() => handleDownloadAttachment(email.id, att)}
+                                              disabled={isDownloading}
+                                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-2xs cursor-pointer"
+                                            >
+                                              {isDownloading ? 'Downloading DOCX...' : 'Download DOCX File'}
+                                            </button>
+                                          )}
+                                        </div>
                                       ) : (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDownloadAttachment(email.id, att);
-                                          }}
-                                          disabled={isDownloading}
-                                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition disabled:opacity-50 flex items-center gap-1 shadow-2xs cursor-pointer"
-                                        >
-                                          {isDownloading ? 'Downloading...' : 'Download'}
-                                        </button>
+                                        /* Fallback */
+                                        <div className="w-full p-6 text-center space-y-2 bg-white rounded-xl border border-slate-200">
+                                          <p className="font-bold text-xs text-slate-800">{att.fileName}</p>
+                                          <p className="text-xs text-slate-500 font-mono">{att.mimeType || 'Document'} • {att.fileSize}</p>
+                                          {isDownloaded ? (
+                                            <a
+                                              href={fileUrl}
+                                              download={att.fileName}
+                                              className="inline-block bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-2xs"
+                                            >
+                                              Download File 📥
+                                            </a>
+                                          ) : (
+                                            <button
+                                              onClick={() => handleDownloadAttachment(email.id, att)}
+                                              disabled={isDownloading}
+                                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-2xs cursor-pointer"
+                                            >
+                                              Download Attachment
+                                            </button>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -360,7 +541,7 @@ export default function GmailIntakeInboxPage() {
                               })}
                             </div>
                           ) : (
-                            <div className="p-3 bg-white border border-dashed border-slate-200 rounded-xl text-xs text-slate-500 text-center font-mono">
+                            <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-xs text-slate-500 text-center font-mono">
                               No attachments.
                             </div>
                           )}
