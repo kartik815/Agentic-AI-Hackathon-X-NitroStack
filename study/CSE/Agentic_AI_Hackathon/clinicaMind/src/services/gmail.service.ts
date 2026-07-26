@@ -245,54 +245,75 @@ export class GmailService {
   }
 
   /**
-   * Phase 2: listIntakeEmails Function
-   * Queries Gmail API using ONLY:
-   * label:"Patient Intake" subject:"NEW PATIENT" (or fallback subject:"NEW PATIENT")
-   * Parses Subject, Sender, Received Time, Snippet, Body, Attachment names and sizes.
-   * Does NOT download attachment content, run OCR, create patients, or insert into database.
+   * Debug listIntakeEmails Function
+   * Queries Gmail API using query: subject:"NEW PATIENT"
+   * Prints search query, API response count, and message IDs returned.
    */
-  static async listIntakeEmails(): Promise<{ connected: boolean; count: number; emails: GmailIntakeMessage[]; message?: string }> {
+  static async listIntakeEmails(): Promise<{
+    connected: boolean;
+    count: number;
+    emails: GmailIntakeMessage[];
+    query?: string;
+    resultSizeEstimate?: number;
+    messageIds?: string[];
+    message?: string;
+  }> {
     const accessToken = await this.refreshAccessToken();
 
     if (!accessToken) {
       return { connected: false, count: 0, emails: [], message: 'Gmail integration is not connected.' };
     }
 
-    // Step 1: Query messages using primary search query
-    let query = 'label:"Patient Intake" subject:"NEW PATIENT"';
-    let messagesUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`;
+    // Step 1: Use exact search query required for debugging
+    const query = 'subject:"NEW PATIENT"';
+    const messagesUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`;
 
-    let res = await fetch(messagesUrl, {
+    // Log exact search query sent to Gmail API
+    console.log(`==========================================`);
+    console.log(`[GmailSearch Debug] 1. Search Query Sent: "${query}"`);
+    console.log(`[GmailSearch Debug] Request URL: ${messagesUrl}`);
+
+    const res = await fetch(messagesUrl, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    let data = await res.json();
-    let messageItems: any[] = data.messages || [];
-
-    // Fallback if no messages found with label query
-    if (messageItems.length === 0) {
-      query = 'subject:"NEW PATIENT"';
-      messagesUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`;
-      res = await fetch(messagesUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      data = await res.json();
-      messageItems = data.messages || [];
-    }
+    const data = await res.json();
 
     if (!res.ok) {
-      console.error('[GmailService] Error querying Gmail API messages:', data);
-      return { connected: true, count: 0, emails: [], message: data.error?.message || 'Failed to list Gmail messages.' };
+      console.error('[GmailSearch Debug] ❌ Error response from Gmail API:', data);
+      return {
+        connected: true,
+        count: 0,
+        emails: [],
+        query,
+        message: data.error?.message || 'Failed to list Gmail messages.'
+      };
     }
+
+    const messageItems: any[] = data.messages || [];
+    const responseCount = data.resultSizeEstimate !== undefined ? data.resultSizeEstimate : messageItems.length;
+    const messageIds = messageItems.map((m: any) => m.id);
+
+    // Print Task 3 Requirements:
+    console.log(`[GmailSearch Debug] 2. Gmail API Response Count: ${responseCount} (Array len: ${messageItems.length})`);
+    console.log(`[GmailSearch Debug] 3. Message IDs Returned:`, messageIds);
+    console.log(`==========================================`);
 
     if (messageItems.length === 0) {
-      return { connected: true, count: 0, emails: [] };
+      return {
+        connected: true,
+        count: 0,
+        emails: [],
+        query,
+        resultSizeEstimate: responseCount,
+        messageIds: []
+      };
     }
 
-    // Step 2: Fetch details for each message
+    // Step 2: Fetch details for returned messages
     const intakeMessages: GmailIntakeMessage[] = [];
 
-    for (const msgItem of messageItems.slice(0, 20)) { // limit to 20 messages for performance
+    for (const msgItem of messageItems.slice(0, 20)) {
       try {
         const detailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgItem.id}?format=full`, {
           headers: { Authorization: `Bearer ${accessToken}` }
@@ -336,7 +357,10 @@ export class GmailService {
     return {
       connected: true,
       count: intakeMessages.length,
-      emails: intakeMessages
+      emails: intakeMessages,
+      query,
+      resultSizeEstimate: responseCount,
+      messageIds
     };
   }
 }

@@ -109,12 +109,12 @@ export default function GmailIntakeInboxPage() {
           <div className="bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 flex items-center justify-between text-xs font-mono">
             <div className="flex items-center gap-2">
               <ShieldCheck size={16} className="text-emerald-400" />
-              <span>Active Gmail API Query:</span>
+              <span>Active Gmail Search Query:</span>
               <code className="bg-slate-800 text-indigo-300 px-2 py-0.5 rounded border border-slate-700">
-                label:"Patient Intake" subject:"NEW PATIENT"
+                subject:"NEW PATIENT"
               </code>
             </div>
-            <span className="text-[10px] text-slate-400">Strict Patient Filter Only</span>
+            <span className="text-[10px] text-slate-400">Subject Search Only (Debug Mode)</span>
           </div>
 
           {/* Inbox Messages List */}
