@@ -25,48 +25,12 @@ export interface CombinedOcrResult {
 
 export class OcrEngineService {
   /**
-   * Safe Native PDF Text Stream Extractor.
-   * Extracts text blocks directly from PDF Buffer without external dependencies.
-   */
-  static extractPdfTextFromBuffer(buffer: Buffer): { text: string; pages: number } {
-    const raw = buffer.toString('utf-8');
-    const pages = (raw.match(/\/Type\s*\/Page\b/g) || []).length || 1;
-
-    // Match parenthesized text blocks ( ... ) Tj
-    const tjMatches = raw.match(/\(([^()]+)\)\s*Tj/g);
-    let extractedText = '';
-    if (tjMatches && tjMatches.length > 0) {
-      extractedText = tjMatches.map(m => m.replace(/^\(/, '').replace(/\)\s*Tj$/, '')).join(' ');
-    }
-
-    // Fallback: extract printable ASCII text blocks
-    if (!extractedText || extractedText.trim().length < 10) {
-      const asciiStrings = raw.match(/[A-Za-z0-9\s.,:;\-()/@#%&*+='"]{4,}/g);
-      if (asciiStrings) {
-        const filtered = asciiStrings.filter(s => {
-          const t = s.trim();
-          return (
-            t.length > 3 &&
-            !t.startsWith('/Type') &&
-            !t.startsWith('/Font') &&
-            !t.startsWith('/MediaBox') &&
-            !t.startsWith('endobj') &&
-            !t.startsWith('stream') &&
-            !t.startsWith('endstream') &&
-            !t.startsWith('xref')
-          );
-        });
-        if (filtered.length > 0) {
-          extractedText = filtered.slice(0, 100).join('\n').trim();
-        }
-      }
-    }
-
-    return { text: extractedText.trim(), pages };
-  }
-
-  /**
-   * Real Document Text Extraction Pipeline with safe error handling and logging.
+   * PDF & Image Text Extraction Pipeline.
+   * - PDF: Attempts direct text extraction using pdf-parse.
+   *        If pdf-parse succeeds, logs debug metrics and returns pdfData.text exactly.
+   *        If pdf-parse throws, logs full exception and falls back to Tesseract OCR.
+   * - PNG / JPG / JPEG: Always runs Tesseract OCR.
+   * - No manual buffer parsing, no regex extraction, no placeholder text.
    */
   static async processDocument(filePath: string, fileName: string, fileType: string): Promise<OcrDocumentResult> {
     const sanitizedName = path.basename(fileName);
@@ -90,33 +54,36 @@ export class OcrEngineService {
     if (isPdf) {
       console.log(`✓ PDF text extraction started for ${sanitizedName}`);
 
-      // 1. Attempt pdf-parse safely
+      let pdfParseError: any = null;
+
       try {
         const pdfParseModule = await import('pdf-parse');
         const pdfParse = (pdfParseModule as any).default || pdfParseModule;
         const pdfData = await pdfParse(fileBuffer);
 
-        pagesProcessed = pdfData.numpages || 1;
-        if (pdfData.text && pdfData.text.trim().length >= 10) {
-          extractedText = pdfData.text.trim();
-          confidenceStr = '99.0% (pdf-parse stream)';
+        if (pdfData && typeof pdfData.text === 'string') {
+          pagesProcessed = pdfData.numpages || 1;
+          extractedText = pdfData.text;
+          confidenceStr = '99.0% (pdf-parse)';
+
+          // Debug logging required when pdf-parse succeeds
+          console.log(`--- [pdf-parse Success Metrics] ---`);
+          console.log(`pdf-parse version: ${pdfData.version || 'default'}`);
+          console.log(`pdfData.numpages: ${pdfData.numpages}`);
+          console.log(`pdfData.info: ${JSON.stringify(pdfData.info || {})}`);
+          console.log(`pdfData.metadata: ${JSON.stringify(pdfData.metadata || {})}`);
+          console.log(`pdfData.text.length: ${pdfData.text.length}`);
+          console.log(`First 200 characters of pdfData.text:\n${pdfData.text.substring(0, 200)}`);
+          console.log(`-----------------------------------`);
+          console.log(`✓ Extraction complete for ${sanitizedName}`);
         }
       } catch (pdfErr: any) {
-        console.warn(`[OcrEngineService] pdf-parse notice for ${sanitizedName}: ${pdfErr?.message}`);
+        pdfParseError = pdfErr;
+        console.error(`[OcrEngineService] pdf-parse failed for ${sanitizedName}:`, pdfErr);
       }
 
-      // 2. If pdf-parse returned minimal text, use native PDF stream extraction
-      if (!extractedText || extractedText.length < 10) {
-        const nativeRes = this.extractPdfTextFromBuffer(fileBuffer);
-        if (nativeRes.text && nativeRes.text.length >= 10) {
-          extractedText = nativeRes.text;
-          pagesProcessed = nativeRes.pages;
-          confidenceStr = '98.0% (native PDF stream)';
-        }
-      }
-
-      // 3. Fallback to Tesseract OCR if PDF lacks embedded text
-      if (!extractedText || extractedText.length < 10) {
+      // If pdf-parse threw an error or returned empty text, run Tesseract OCR fallback
+      if (!extractedText || extractedText.trim().length === 0) {
         console.log(`✓ OCR fallback started (Tesseract.js) for ${sanitizedName}`);
         try {
           const { createWorker } = await import('tesseract.js');
@@ -124,16 +91,23 @@ export class OcrEngineService {
           const { data } = await worker.recognize(fileBuffer);
           await worker.terminate();
 
-          if (data.text && data.text.trim().length > 0) {
-            extractedText = data.text.trim();
+          if (data && data.text && data.text.trim().length > 0) {
+            extractedText = data.text;
             confidenceStr = data.confidence ? `${data.confidence.toFixed(1)}% (Tesseract OCR)` : '90.0%';
+            console.log(`✓ Extraction complete for ${sanitizedName} via Tesseract OCR`);
+          } else {
+            throw new Error(`Tesseract OCR returned empty text for "${sanitizedName}".`);
           }
         } catch (tessErr: any) {
-          console.warn(`[OcrEngineService] Tesseract OCR notice for ${sanitizedName}: ${tessErr?.message}`);
+          console.error(`[OcrEngineService] Tesseract OCR failed for ${sanitizedName}:`, tessErr);
+          const combinedMsg = pdfParseError
+            ? `pdf-parse error: ${pdfParseError?.message || pdfParseError}; Tesseract error: ${tessErr?.message || tessErr}`
+            : `Tesseract error: ${tessErr?.message || tessErr}`;
+          throw new Error(`Text extraction failed for "${sanitizedName}": ${combinedMsg}`);
         }
       }
     } else {
-      // Image files (PNG, JPG, JPEG)
+      // PNG / JPG / JPEG / Image files
       console.log(`✓ OCR fallback started (Tesseract.js) for image file ${sanitizedName}`);
       try {
         const { createWorker } = await import('tesseract.js');
@@ -141,33 +115,27 @@ export class OcrEngineService {
         const { data } = await worker.recognize(fileBuffer);
         await worker.terminate();
 
-        if (data.text && data.text.trim().length > 0) {
-          extractedText = data.text.trim();
+        if (data && data.text && data.text.trim().length > 0) {
+          extractedText = data.text;
           confidenceStr = data.confidence ? `${data.confidence.toFixed(1)}% (Tesseract OCR)` : '95.0%';
+          console.log(`✓ Extraction complete for ${sanitizedName} via Tesseract OCR`);
+        } else {
+          throw new Error(`Tesseract OCR returned empty text for image "${sanitizedName}".`);
         }
       } catch (imgErr: any) {
-        console.warn(`[OcrEngineService] Image Tesseract notice: ${imgErr?.message}`);
+        console.error(`[OcrEngineService] Image Tesseract failed for ${sanitizedName}:`, imgErr);
+        throw new Error(`Image OCR extraction failed for "${sanitizedName}": ${imgErr?.message || imgErr}`);
       }
     }
-
-    // 4. Fallback verification: Construct document layout directly from file if text stream is minimal
-    if (!extractedText || extractedText.length === 0) {
-      const cleanName = path.basename(sanitizedName, path.extname(sanitizedName)).replace(/[_-]/g, ' ').trim();
-      extractedText = `PATIENT MEDICAL INTAKE REPORT\nDocument: ${sanitizedName}\nPatient Name: ${cleanName}\nDate: ${new Date().toLocaleDateString()}\n\nEXTRACTED FILE CONTENT:\nPatient ${cleanName} medical intake document parsed from uploaded file (${fileBuffer.length} bytes).\nProcessing Status: Complete`;
-    }
-
-    console.log(`✓ Extraction complete for ${sanitizedName}`);
-
-    const formattedRawText = `=== DOCUMENT: ${sanitizedName} (Pages: ${pagesProcessed}) ===\n\n${extractedText}`;
 
     return {
       success: true,
       documentName: sanitizedName,
       fileType: ext,
       pagesProcessed,
-      characterCount: formattedRawText.length,
+      characterCount: extractedText.length,
       confidence: confidenceStr,
-      rawText: formattedRawText
+      rawText: extractedText
     };
   }
 
