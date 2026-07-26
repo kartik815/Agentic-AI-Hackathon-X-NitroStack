@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, Stethoscope, Sparkles, FileText, BookOpen, ShieldCheck, ChevronRight, Bot, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, Stethoscope, Sparkles, FileText, BookOpen, ShieldCheck, ChevronRight, Bot, Settings, FolderOpen } from 'lucide-react';
 
 interface SidebarProps {
   onOpenCopilot?: () => void;
@@ -16,6 +16,7 @@ export function Sidebar({ onOpenCopilot }: SidebarProps) {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: "Today's Queue", href: '/consultations', icon: Stethoscope },
     { name: 'Patients Hub', href: '/patients', icon: Users },
+    { name: 'Document Review', href: '/settings/integrations/gmail/review', icon: FolderOpen, badge: 'Review' },
     { name: 'AI Workspace', href: '/workspace', icon: Sparkles, badge: 'Canvas' },
     { name: 'AI Risk Insights', href: '/insights', icon: ShieldCheck },
     { name: 'Clinical Reports', href: '/reports', icon: FileText },

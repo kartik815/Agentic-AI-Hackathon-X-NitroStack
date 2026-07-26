@@ -167,6 +167,14 @@ export default function GmailIntakeInboxPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Link
+              href="/settings/integrations/gmail/review"
+              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-indigo-300 font-bold text-xs px-4 py-2 rounded-xl border border-slate-700 transition"
+            >
+              <FolderOpen size={14} className="text-indigo-400" />
+              <span>Document Review Workspace →</span>
+            </Link>
+
             <button
               onClick={fetchInbox}
               disabled={loading}
