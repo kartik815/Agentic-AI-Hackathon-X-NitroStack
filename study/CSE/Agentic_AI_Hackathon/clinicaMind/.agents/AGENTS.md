@@ -22,3 +22,13 @@
      - Commit Message
      - Branch
      - Push Status
+
+## Post-Implementation Compile & Sanity Check Protocol
+After implementing any feature or bug fix:
+- Ensure the project compiles successfully.
+- Resolve all TypeScript errors in changed files.
+- Resolve all ESLint errors.
+- Ensure all imported components and icons exist.
+- Ensure there are no undefined React components.
+- Do not leave any runtime ReferenceErrors.
+
