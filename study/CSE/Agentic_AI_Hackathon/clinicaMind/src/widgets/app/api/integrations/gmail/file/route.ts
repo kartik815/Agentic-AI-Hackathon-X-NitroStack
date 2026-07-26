@@ -18,15 +18,27 @@ export async function GET(request: Request) {
     let targetPath = '';
 
     if (filePathParam) {
-      targetPath = path.resolve(filePathParam);
-      if (!targetPath.startsWith(tempDir)) {
-        return NextResponse.json({ status: 'error', message: 'Access denied: File outside temp directory.' }, { status: 403 });
+      const resolved = path.resolve(filePathParam);
+      if (fs.existsSync(resolved)) {
+        targetPath = resolved;
       }
-    } else if (fileNameParam) {
-      targetPath = path.join(tempDir, path.basename(fileNameParam));
     }
 
-    if (!fs.existsSync(targetPath)) {
+    if (!targetPath && fileNameParam) {
+      const cleanName = path.basename(fileNameParam);
+      const directPath = path.join(tempDir, cleanName);
+      if (fs.existsSync(directPath)) {
+        targetPath = directPath;
+      } else if (fs.existsSync(tempDir)) {
+        const files = fs.readdirSync(tempDir);
+        const match = files.find(f => f === cleanName || f.endsWith(`_${cleanName}`) || f.toLowerCase().includes(cleanName.toLowerCase()));
+        if (match) {
+          targetPath = path.join(tempDir, match);
+        }
+      }
+    }
+
+    if (!targetPath || !fs.existsSync(targetPath)) {
       return NextResponse.json({ status: 'error', message: 'File not found on server.' }, { status: 404 });
     }
 

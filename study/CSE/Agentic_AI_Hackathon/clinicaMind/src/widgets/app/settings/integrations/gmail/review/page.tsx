@@ -20,6 +20,7 @@ import {
   FolderOpen
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export interface DocumentItem {
   id: string;
@@ -37,7 +38,9 @@ export interface DocumentItem {
 }
 
 export default function DocumentReviewWorkspacePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [collectedMessage, setCollectedMessage] = useState<string | null>(null);
 
@@ -158,12 +161,28 @@ export default function DocumentReviewWorkspacePage() {
     setDocuments((prev) => prev.filter((doc) => !doc.isSelected));
   };
 
-  const handleProcessSelected = () => {
+  const handleProcessSelected = async () => {
     const selected = documents.filter((d) => d.isSelected);
-    const names = selected.map((d) => d.fileName).join(', ');
-    setCollectedMessage(
-      `Collected ${selected.length} selected document(s) for processing: [${names}]. No OCR, AI extraction, or DB insertion performed.`
-    );
+    if (selected.length === 0) return;
+
+    setIsProcessing(true);
+    try {
+      await fetch('/api/integrations/gmail/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documents: selected,
+          sourceEmail: selected[0]?.sourceEmail || 'doctor@gmail.com',
+          receivedTime: selected[0]?.uploadTime || new Date().toLocaleString()
+        })
+      });
+      router.push('/settings/integrations/gmail/processing');
+    } catch (e) {
+      console.error('Error creating processing session:', e);
+      router.push('/settings/integrations/gmail/processing');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
