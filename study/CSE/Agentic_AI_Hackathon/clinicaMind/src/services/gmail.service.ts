@@ -138,7 +138,7 @@ export class GmailService {
       })
     });
 
-    const tokenData = await tokenResponse.json();
+    const tokenData: any = await tokenResponse.json();
 
     if (!tokenResponse.ok || tokenData.error) {
       console.error('[GmailService] Token exchange failed:', tokenData);
@@ -154,7 +154,7 @@ export class GmailService {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (userinfoRes.ok) {
-        const userinfo = await userinfoRes.json();
+        const userinfo: any = await userinfoRes.json();
         if (userinfo.email) {
           userEmail = userinfo.email;
         }
@@ -229,7 +229,7 @@ export class GmailService {
         })
       });
 
-      const data = await res.json();
+      const data: any = await res.json();
       if (res.ok && data.access_token) {
         this.saveState({
           ...state,
@@ -245,47 +245,73 @@ export class GmailService {
   }
 
   /**
-   * Debug listIntakeEmails Function
-   * Queries Gmail API using query: subject:"NEW PATIENT"
-   * Prints search query, API response count, and message IDs returned.
+   * Debug & Diagnostic listIntakeEmails Function
+   * Logs pre-call status, post-call HTTP status & response, result size, and message IDs.
    */
   static async listIntakeEmails(): Promise<{
     connected: boolean;
     count: number;
     emails: GmailIntakeMessage[];
     query?: string;
+    accountEmail?: string;
+    httpStatus?: number;
     resultSizeEstimate?: number;
     messageIds?: string[];
+    firstMessageId?: string;
+    apiError?: string;
+    rawApiResponse?: any;
     message?: string;
   }> {
+    const state = this.loadState();
+    const accountEmail = state.email || 'Unknown';
     const accessToken = await this.refreshAccessToken();
+    const query = 'subject:"NEW PATIENT"';
+
+    // Requirement 2: Log BEFORE API call
+    console.log(`==========================================`);
+    console.log(`[GmailSearch Diagnostics] BEFORE API CALL:`);
+    console.log(`- Connected Gmail Account: ${accountEmail}`);
+    console.log(`- Search Query: "${query}"`);
+    console.log(`- Access Token Status: ${accessToken ? 'Valid Token Obtained' : 'Expired / Missing Token'}`);
+    console.log(`==========================================`);
 
     if (!accessToken) {
-      return { connected: false, count: 0, emails: [], message: 'Gmail integration is not connected.' };
+      return {
+        connected: false,
+        count: 0,
+        emails: [],
+        query,
+        accountEmail,
+        apiError: 'Gmail integration is not connected or token is expired.',
+        message: 'Gmail integration is not connected.'
+      };
     }
 
-    // Step 1: Use exact search query required for debugging
-    const query = 'subject:"NEW PATIENT"';
-    const messagesUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`;
-
-    // Log exact search query sent to Gmail API
-    console.log(`==========================================`);
-    console.log(`[GmailSearch Debug] 1. Search Query Sent: "${query}"`);
-    console.log(`[GmailSearch Debug] Request URL: ${messagesUrl}`);
+    const messagesUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&includeSpamTrash=true`;
 
     const res = await fetch(messagesUrl, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    const data = await res.json();
+    const httpStatus = res.status;
+    const data: any = await res.json();
+
+    // Requirement 3: Log AFTER API response
+    console.log(`==========================================`);
+    console.log(`[GmailSearch Diagnostics] AFTER API RESPONSE:`);
+    console.log(`- HTTP Status: ${httpStatus} ${res.statusText}`);
+    console.log(`- Entire Gmail API Response Payload:`, JSON.stringify(data));
 
     if (!res.ok) {
-      console.error('[GmailSearch Debug] ❌ Error response from Gmail API:', data);
+      console.error(`[GmailSearch Diagnostics] ❌ Gmail API Returned Error:`, data);
       return {
         connected: true,
         count: 0,
         emails: [],
         query,
+        accountEmail,
+        httpStatus,
+        apiError: data.error?.message || `HTTP ${httpStatus} Error`,
         message: data.error?.message || 'Failed to list Gmail messages.'
       };
     }
@@ -293,25 +319,36 @@ export class GmailService {
     const messageItems: any[] = data.messages || [];
     const responseCount = data.resultSizeEstimate !== undefined ? data.resultSizeEstimate : messageItems.length;
     const messageIds = messageItems.map((m: any) => m.id);
+    const firstMessageId = messageIds.length > 0 ? messageIds[0] : 'None';
 
-    // Print Task 3 Requirements:
-    console.log(`[GmailSearch Debug] 2. Gmail API Response Count: ${responseCount} (Array len: ${messageItems.length})`);
-    console.log(`[GmailSearch Debug] 3. Message IDs Returned:`, messageIds);
-    console.log(`==========================================`);
+    console.log(`- Result Size Estimate: ${responseCount}`);
+    console.log(`- Returned Message IDs Count: ${messageItems.length}`);
+    console.log(`- Message IDs:`, messageIds);
 
+    // Requirement 4: Explicitly log zero results
     if (messageItems.length === 0) {
+      console.log(`[GmailSearch Diagnostics] ⚠️ EXPLICIT ZERO RESULTS: Gmail API returned ZERO messages for query "${query}". (ResultSizeEstimate: ${responseCount})`);
+      console.log(`==========================================`);
       return {
         connected: true,
         count: 0,
         emails: [],
         query,
+        accountEmail,
+        httpStatus,
         resultSizeEstimate: responseCount,
-        messageIds: []
+        messageIds: [],
+        firstMessageId: 'None',
+        apiError: 'None (0 matching messages)',
+        rawApiResponse: data
       };
     }
 
-    // Step 2: Fetch details for returned messages
+    console.log(`==========================================`);
+
+    // Fetch details for returned messages
     const intakeMessages: GmailIntakeMessage[] = [];
+    let discardedCount = 0;
 
     for (const msgItem of messageItems.slice(0, 20)) {
       try {
@@ -319,9 +356,13 @@ export class GmailService {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
 
-        if (!detailRes.ok) continue;
+        if (!detailRes.ok) {
+          console.warn(`[GmailSearch Diagnostics] Discarded message ID ${msgItem.id}: HTTP ${detailRes.status} on detail fetch.`);
+          discardedCount++;
+          continue;
+        }
 
-        const detail = await detailRes.json();
+        const detail: any = await detailRes.json();
         const headers: any[] = detail.payload?.headers || [];
 
         const getHeader = (name: string) => {
@@ -350,8 +391,14 @@ export class GmailService {
           attachments: parseResult.attachments
         });
       } catch (err) {
-        console.error(`[GmailService] Error fetching message detail ${msgItem.id}:`, err);
+        console.error(`[GmailSearch Diagnostics] Discarded message ID ${msgItem.id} due to parse error:`, err);
+        discardedCount++;
       }
+    }
+
+    // Requirement 5: Log discarded messages if any
+    if (discardedCount > 0) {
+      console.log(`[GmailSearch Diagnostics] ⚠️ DISCARD IDENTIFIER: ${discardedCount} message(s) were returned by Gmail search but discarded during detail fetch/parse.`);
     }
 
     return {
@@ -359,8 +406,13 @@ export class GmailService {
       count: intakeMessages.length,
       emails: intakeMessages,
       query,
+      accountEmail,
+      httpStatus,
       resultSizeEstimate: responseCount,
-      messageIds
+      messageIds,
+      firstMessageId,
+      apiError: 'None',
+      rawApiResponse: data
     };
   }
 }

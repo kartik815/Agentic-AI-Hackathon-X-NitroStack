@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from '../../../../../components/Sidebar';
-import { Mail, RefreshCw, Paperclip, ChevronDown, ChevronUp, Inbox, Calendar, User, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { Mail, RefreshCw, Paperclip, ChevronDown, ChevronUp, Inbox, Calendar, User, ShieldCheck, ArrowLeft, Bug } from 'lucide-react';
 import Link from 'next/link';
 
 export default function GmailIntakeInboxPage() {
@@ -11,6 +11,13 @@ export default function GmailIntakeInboxPage() {
   const [connected, setConnected] = useState<boolean>(true);
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<{
+    connectedEmail?: string;
+    searchQuery?: string;
+    messagesReturned?: number;
+    firstMessageId?: string;
+    apiError?: string;
+  }>({});
 
   const fetchInbox = async () => {
     setLoading(true);
@@ -24,10 +31,25 @@ export default function GmailIntakeInboxPage() {
         if (json.message) {
           setStatusMessage(json.message);
         }
+
+        setDiagnostics({
+          connectedEmail: json.accountEmail || 'doctor@gmail.com',
+          searchQuery: json.query || 'subject:"NEW PATIENT"',
+          messagesReturned: json.count !== undefined ? json.count : (json.emails?.length || 0),
+          firstMessageId: json.firstMessageId || (json.emails?.[0]?.id || 'None'),
+          apiError: json.apiError || 'None'
+        });
       }
     } catch (e: any) {
       console.error('Error fetching Gmail intake inbox:', e);
       setStatusMessage('Failed to connect to server API endpoint.');
+      setDiagnostics({
+        connectedEmail: 'Unknown',
+        searchQuery: 'subject:"NEW PATIENT"',
+        messagesReturned: 0,
+        firstMessageId: 'None',
+        apiError: e?.message || 'Failed to connect to API'
+      });
     } finally {
       setLoading(false);
     }
@@ -105,16 +127,46 @@ export default function GmailIntakeInboxPage() {
             </div>
           )}
 
-          {/* Search Query Info Banner */}
-          <div className="bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 flex items-center justify-between text-xs font-mono">
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={16} className="text-emerald-400" />
-              <span>Active Gmail Search Query:</span>
-              <code className="bg-slate-800 text-indigo-300 px-2 py-0.5 rounded border border-slate-700">
-                subject:"NEW PATIENT"
-              </code>
+          {/* Requirement 6: Temporary Diagnostics Panel */}
+          <div className="bg-slate-900 border border-slate-800 text-slate-200 rounded-2xl p-5 text-xs font-mono space-y-3 shadow-md">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                <Bug size={14} />
+                Gmail Search Diagnostics
+              </span>
+              <span className="text-[10px] text-slate-500">Live API Telemetry</span>
             </div>
-            <span className="text-[10px] text-slate-400">Subject Search Only (Debug Mode)</span>
+
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase">Connected Gmail:</span>
+                <span className="font-bold text-white truncate block">{diagnostics.connectedEmail || 'Checking...'}</span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase">Search Query:</span>
+                <span className="font-bold text-indigo-300 truncate block">{diagnostics.searchQuery || 'subject:"NEW PATIENT"'}</span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase">Messages Returned:</span>
+                <span className={`font-bold block ${diagnostics.messagesReturned && diagnostics.messagesReturned > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {diagnostics.messagesReturned !== undefined ? diagnostics.messagesReturned : 0}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase">First Message ID:</span>
+                <span className="font-bold text-slate-300 truncate block">{diagnostics.firstMessageId || 'None'}</span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase">Any Gmail API Error:</span>
+                <span className={`font-bold block ${diagnostics.apiError && diagnostics.apiError !== 'None' ? 'text-red-400' : 'text-slate-400'}`}>
+                  {diagnostics.apiError || 'None'}
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* Inbox Messages List */}
