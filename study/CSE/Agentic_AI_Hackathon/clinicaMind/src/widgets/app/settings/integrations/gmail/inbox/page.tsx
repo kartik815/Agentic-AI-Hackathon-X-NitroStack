@@ -19,6 +19,9 @@ export default function GmailIntakeInboxPage() {
     apiError?: string;
   }>({});
 
+  const [downloadingMap, setDownloadingMap] = useState<Record<string, boolean>>({});
+  const [downloadedMap, setDownloadedMap] = useState<Record<string, { filename: string; mimeType: string; size: string; localPath: string }>>({});
+
   const fetchInbox = async () => {
     setLoading(true);
     setStatusMessage(null);
@@ -53,6 +56,50 @@ export default function GmailIntakeInboxPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDownloadAttachment = async (emailId: string, att: any) => {
+    const key = `${emailId}_${att.attachmentId || att.fileName}`;
+    setDownloadingMap((prev) => ({ ...prev, [key]: true }));
+
+    try {
+      const res = await fetch('/api/integrations/gmail/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: emailId,
+          attachmentId: att.attachmentId,
+          fileName: att.fileName,
+          mimeType: att.mimeType
+        })
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.status === 'success' && json.attachment) {
+          setDownloadedMap((prev) => ({
+            ...prev,
+            [key]: json.attachment
+          }));
+        }
+      }
+    } catch (e) {
+      console.error('Download error:', e);
+    } finally {
+      setDownloadingMap((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const getFileType = (fileName: string, mimeType?: string): string => {
+    const ext = fileName.split('.').pop()?.toUpperCase() || '';
+    if (['PDF', 'PNG', 'JPG', 'JPEG', 'DOCX'].includes(ext)) {
+      return ext;
+    }
+    if (mimeType?.includes('pdf')) return 'PDF';
+    if (mimeType?.includes('png')) return 'PNG';
+    if (mimeType?.includes('jpeg') || mimeType?.includes('jpg')) return 'JPG';
+    if (mimeType?.includes('word') || mimeType?.includes('officedocument')) return 'DOCX';
+    return ext || 'FILE';
   };
 
   useEffect(() => {
@@ -251,40 +298,70 @@ export default function GmailIntakeInboxPage() {
                           </div>
                         </div>
 
-                        {/* Attachments Metadata */}
+                        {/* Attachments Section */}
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
                               Attached Documents ({email.attachmentCount})
                             </span>
-                            <span className="text-[10px] text-slate-400 font-mono">Metadata Only • Not Downloaded</span>
                           </div>
 
                           {email.attachments && email.attachments.length > 0 ? (
-                            <div className="grid grid-cols-2 gap-3">
-                              {email.attachments.map((att: any, idx: number) => (
-                                <div
-                                  key={idx}
-                                  className="bg-white border border-slate-200/80 p-3 rounded-xl flex items-center justify-between text-xs shadow-2xs"
-                                >
-                                  <div className="flex items-center gap-2.5 overflow-hidden">
-                                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0">
-                                      <Paperclip size={14} />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {email.attachments.map((att: any, idx: number) => {
+                                const key = `${email.id}_${att.attachmentId || att.fileName}`;
+                                const isDownloading = Boolean(downloadingMap[key]);
+                                const downloadedData = downloadedMap[key];
+                                const isDownloaded = Boolean(downloadedData);
+                                const fileType = getFileType(att.fileName, att.mimeType);
+
+                                return (
+                                  <div
+                                    key={idx}
+                                    className="bg-white border border-slate-200/80 p-3.5 rounded-xl flex items-center justify-between text-xs shadow-2xs gap-3"
+                                  >
+                                    <div className="flex items-center gap-2.5 overflow-hidden flex-1">
+                                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0">
+                                        <Paperclip size={14} />
+                                      </div>
+                                      <div className="truncate">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-bold text-slate-900 block truncate">{att.fileName}</span>
+                                          <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded shrink-0">
+                                            {fileType}
+                                          </span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
+                                          {downloadedData?.size || att.fileSize}
+                                        </span>
+                                      </div>
                                     </div>
-                                    <div className="truncate">
-                                      <span className="font-bold text-slate-900 block truncate">{att.fileName}</span>
-                                      <span className="text-[10px] text-slate-400 font-mono block">{att.mimeType || 'Document'}</span>
+
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {isDownloaded ? (
+                                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                                          Downloaded ✓
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDownloadAttachment(email.id, att);
+                                          }}
+                                          disabled={isDownloading}
+                                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition disabled:opacity-50 flex items-center gap-1 shadow-2xs cursor-pointer"
+                                        >
+                                          {isDownloading ? 'Downloading...' : 'Download'}
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
-                                  <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200 px-2 py-1 rounded shrink-0">
-                                    {att.fileSize}
-                                  </span>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           ) : (
-                            <div className="p-3 bg-white border border-dashed border-slate-200 rounded-xl text-xs text-slate-400 text-center font-mono">
-                              No file attachments present in this email.
+                            <div className="p-3 bg-white border border-dashed border-slate-200 rounded-xl text-xs text-slate-500 text-center font-mono">
+                              No attachments.
                             </div>
                           )}
                         </div>

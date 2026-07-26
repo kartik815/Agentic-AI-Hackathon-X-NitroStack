@@ -473,4 +473,105 @@ export class GmailService {
       rawApiResponse: data
     };
   }
+
+  /**
+   * Download Attachment Function: Retrieves attachment from Gmail API and saves temporarily to server
+   */
+  static async downloadAttachment(
+    messageId: string,
+    attachmentId?: string,
+    fileName: string = 'attachment.bin',
+    mimeType?: string
+  ): Promise<{
+    success: boolean;
+    filename: string;
+    mimeType: string;
+    size: string;
+    localPath: string;
+    message?: string;
+  }> {
+    const tokenInfo = await this.refreshAccessTokenDetails();
+    const accessToken = tokenInfo.accessToken;
+
+    if (!accessToken) {
+      return {
+        success: false,
+        filename: fileName,
+        mimeType: mimeType || 'application/octet-stream',
+        size: '0 B',
+        localPath: '',
+        message: 'Access token missing or expired.'
+      };
+    }
+
+    try {
+      let rawBase64 = '';
+
+      if (attachmentId) {
+        const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+
+        if (!res.ok) {
+          const errorData: any = await res.json();
+          return {
+            success: false,
+            filename: fileName,
+            mimeType: mimeType || 'application/octet-stream',
+            size: '0 B',
+            localPath: '',
+            message: errorData.error?.message || `HTTP ${res.status} error downloading attachment`
+          };
+        }
+
+        const data: any = await res.json();
+        rawBase64 = data.data || '';
+      }
+
+      if (!rawBase64) {
+        return {
+          success: false,
+          filename: fileName,
+          mimeType: mimeType || 'application/octet-stream',
+          size: '0 B',
+          localPath: '',
+          message: 'No attachment data received from Gmail API'
+        };
+      }
+
+      const fileBuffer = Buffer.from(rawBase64, 'base64url');
+      const tempDir = path.resolve(process.cwd(), 'data', 'temp_attachments');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      const sanitizedFileName = path.basename(fileName);
+      const localPath = path.join(tempDir, `${Date.now()}_${sanitizedFileName}`);
+      fs.writeFileSync(localPath, fileBuffer);
+
+      const sizeStr = formatBytes(fileBuffer.length);
+      const detectedMime = mimeType || 'application/octet-stream';
+
+      console.log(`[GmailService] 📥 Downloaded attachment "${sanitizedFileName}" (${sizeStr}) to temporary location: ${localPath}`);
+
+      return {
+        success: true,
+        filename: sanitizedFileName,
+        mimeType: detectedMime,
+        size: sizeStr,
+        localPath
+      };
+    } catch (error: any) {
+      console.error('[GmailService] Error in downloadAttachment:', error);
+      return {
+        success: false,
+        filename: fileName,
+        mimeType: mimeType || 'application/octet-stream',
+        size: '0 B',
+        localPath: '',
+        message: error?.message || 'Server error downloading attachment'
+      };
+    }
+  }
 }
