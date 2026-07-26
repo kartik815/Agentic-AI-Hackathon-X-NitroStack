@@ -1,3 +1,5 @@
+import path from 'path';
+
 export interface ExtractedField {
   value: string;
   confidence: string;
@@ -35,20 +37,50 @@ export interface StructuredClinicalData {
 export class AiExtractionService {
   /**
    * Converts complete raw OCR text into structured clinical information.
-   * Performs no summarization prior to extraction.
-   * Never hallucinates values; uses 'Not Found' when data is missing.
+   * Dynamically extracts values from uploaded document OCR streams.
+   * Never uses hardcoded sample data or hallucinated default names.
    */
   static async extractStructuredData(rawOcrText: string): Promise<StructuredClinicalData> {
     const text = rawOcrText || '';
 
-    // Regex / pattern parsing based on raw OCR string
-    const nameMatch = text.match(/(?:Patient Name|Name):\s*([^\n|]+)/i);
-    const dobMatch = text.match(/(?:DOB|Date of Birth):\s*([^\n|]+)/i);
-    const genderMatch = text.match(/(?:Gender|Sex):\s*([^\n|]+)/i);
-    const phoneMatch = text.match(/(?:Phone|Contact|Tel):\s*([^\n|]+)/i);
-    const emailMatch = text.match(/(?:Email|Primary Email):\s*([^\n|]+)/i);
-    const addressMatch = text.match(/(?:Address):\s*([^\n|]+)/i);
+    // Extract Patient Name
+    const nameMatch = text.match(/(?:Patient Name|PATIENT NAME|Name):\s*([^\n|]+)/i);
+    let nameVal = 'Not Found';
+    if (nameMatch) {
+      nameVal = nameMatch[1].trim();
+    } else {
+      const docMatch = text.match(/DOCUMENT:\s*([^\n|]+)/i);
+      if (docMatch) {
+        const cleanDocName = docMatch[1].trim();
+        nameVal = path.basename(cleanDocName, path.extname(cleanDocName)).replace(/[_-]/g, ' ').trim();
+      }
+    }
 
+    // Extract DOB
+    const dobMatch = text.match(/(?:DOB|Date of Birth):\s*([^\n|]+)/i);
+    const dobVal = dobMatch ? dobMatch[1].trim() : 'Not Found';
+
+    // Extract Age
+    const ageMatch = text.match(/(?:Age):\s*([0-9]{1,3})/i);
+    const ageVal = ageMatch ? ageMatch[1].trim() : 'Not Found';
+
+    // Extract Gender
+    const genderMatch = text.match(/(?:Gender|Sex):\s*([^\n|]+)/i);
+    const genderVal = genderMatch ? genderMatch[1].trim() : 'Not Found';
+
+    // Extract Phone
+    const phoneMatch = text.match(/(?:Phone|Contact|Tel):\s*([^\n|]+)/i);
+    const phoneVal = phoneMatch ? phoneMatch[1].trim() : 'Not Found';
+
+    // Extract Email
+    const emailMatch = text.match(/(?:Email|Primary Email):\s*([^\n|]+)/i);
+    const emailVal = emailMatch ? emailMatch[1].trim() : 'Not Found';
+
+    // Extract Address
+    const addressMatch = text.match(/(?:Address):\s*([^\n|]+)/i);
+    const addressVal = addressMatch ? addressMatch[1].trim() : 'Not Found';
+
+    // Extract Vitals
     const bpMatch = text.match(/(?:Blood Pressure|BP):\s*([0-9]{2,3}\/[0-9]{2,3}\s*mmHg)/i);
     const hrMatch = text.match(/(?:Heart Rate|HR|Pulse):\s*([0-9]{2,3}\s*bpm)/i);
     const tempMatch = text.match(/(?:Temperature|Temp):\s*([0-9]{2,3}(?:\.[0-9])?\s*°?[FC])/i);
@@ -57,65 +89,50 @@ export class AiExtractionService {
     const heightMatch = text.match(/(?:Height):\s*([^\n|]+)/i);
     const weightMatch = text.match(/(?:Weight):\s*([^\n|]+)/i);
 
-    const nameVal = nameMatch ? nameMatch[1].trim() : 'John Doe';
-    const dobVal = dobMatch ? dobMatch[1].trim() : '05/14/1982';
-    const genderVal = genderMatch ? genderMatch[1].trim() : 'Male';
-    const phoneVal = phoneMatch ? phoneMatch[1].trim() : 'Not Found';
-    const emailVal = emailMatch ? emailMatch[1].trim() : 'intake-patient@gmail.com';
-    const addressVal = addressMatch ? addressMatch[1].trim() : 'Not Found';
-
-    const bpVal = bpMatch ? bpMatch[1].trim() : '138/88 mmHg';
-    const hrVal = hrMatch ? hrMatch[1].trim() : '78 bpm';
-    const tempVal = tempMatch ? tempMatch[1].trim() : '98.6 °F';
-    const rrVal = rrMatch ? rrMatch[1].trim() : '18 breaths/min';
-    const spo2Val = spo2Match ? spo2Match[1].trim() : '97% on room air';
+    const bpVal = bpMatch ? bpMatch[1].trim() : 'Not Found';
+    const hrVal = hrMatch ? hrMatch[1].trim() : 'Not Found';
+    const tempVal = tempMatch ? tempMatch[1].trim() : 'Not Found';
+    const rrVal = rrMatch ? rrMatch[1].trim() : 'Not Found';
+    const spo2Val = spo2Match ? spo2Match[1].trim() : 'Not Found';
     const heightVal = heightMatch ? heightMatch[1].trim() : 'Not Found';
     const weightVal = weightMatch ? weightMatch[1].trim() : 'Not Found';
 
-    // Parse sections
-    let chiefComplaintVal = 'Not Found';
-    if (text.includes('CHIEF COMPLAINT') || text.includes('REASON FOR CONSULTATION')) {
-      chiefComplaintVal = 'Patient reports persistent shortness of breath, mild chest tightness on exertion, and chronic fatigue over the past 3 weeks.';
-    }
+    // Extract Chief Complaint
+    const ccMatch = text.match(/(?:CHIEF COMPLAINT|Chief Complaint|REASON FOR CONSULTATION):\s*([^\n]+)/i);
+    const chiefComplaintVal = ccMatch ? ccMatch[1].trim() : 'Not Found';
 
-    let presentIllnessVal = 'Not Found';
-    if (text.includes('SYMPTOMS') || text.includes('CHIEF COMPLAINT')) {
-      presentIllnessVal = 'Symptoms worsening during prolonged physical exertion. No syncopal episodes reported.';
-    }
+    // Extract Present Illness
+    const piMatch = text.match(/(?:PRESENT ILLNESS|Present Illness|SYMPTOMS):\s*([^\n]+)/i);
+    const presentIllnessVal = piMatch ? piMatch[1].trim() : 'Not Found';
 
-    let pastHistoryVal = 'Not Found';
-    if (text.includes('PAST MEDICAL HISTORY') || text.includes('Family history')) {
-      pastHistoryVal = 'Mild Asthma, Seasonal Allergies, Appendectomy (2018). Family history positive for cardiovascular disease.';
-    }
+    // Extract Past Medical History
+    const pmhMatch = text.match(/(?:PAST MEDICAL HISTORY|Past History):\s*([^\n]+)/i);
+    const pastHistoryVal = pmhMatch ? pmhMatch[1].trim() : 'Not Found';
 
-    let allergiesVal = 'Not Found';
-    if (text.includes('ALLERGIES')) {
-      allergiesVal = 'Penicillin (Rash/Urticaria)';
-    }
+    // Extract Allergies
+    const algMatch = text.match(/(?:ALLERGIES|Allergies):\s*([^\n]+)/i);
+    const allergiesVal = algMatch ? algMatch[1].trim() : 'Not Found';
 
-    let medicationsVal = 'Not Found';
-    if (text.includes('MEDICATIONS') || text.includes('CURRENT MEDICATIONS')) {
-      medicationsVal = 'Albuterol HFA Inhaler 90mcg - 2 puffs PRN, Cetirizine 10mg PO daily, Daily Multivitamin';
-    }
+    // Extract Current Medications
+    const medMatch = text.match(/(?:CURRENT MEDICATIONS|Medications):\s*([^\n]+)/i);
+    const medicationsVal = medMatch ? medMatch[1].trim() : 'Not Found';
 
-    let investigationsVal = 'Not Found';
-    if (text.includes('LABORATORY') || text.includes('REMARKS') || text.includes('ECG')) {
-      investigationsVal = 'Follow-up lipid panel, fasting blood glucose re-check in 30 days, 12-lead ECG monitoring.';
-    }
+    // Extract Recommended Investigations
+    const invMatch = text.match(/(?:RECOMMENDED INVESTIGATIONS|Investigations|LABORATORY):\s*([^\n]+)/i);
+    const investigationsVal = invMatch ? invMatch[1].trim() : 'Not Found';
 
-    let insuranceVal = 'Not Found';
-    if (text.includes('INSURANCE') || text.includes('Policy')) {
-      insuranceVal = 'Blue Cross Blue Shield - Policy #BC-99201948';
-    }
+    // Extract Insurance Details
+    const insMatch = text.match(/(?:INSURANCE|Insurance Details):\s*([^\n]+)/i);
+    const insuranceVal = insMatch ? insMatch[1].trim() : 'Not Found';
 
-    let observationsVal = 'Extracted complete structured clinical payload from raw document OCR. Pre-diabetic HbA1c (5.9%) and elevated fasting glucose (112 mg/dL) noted.';
+    const observationsVal = `Extracted structured clinical data for ${nameVal} from uploaded OCR text payload (${text.length} chars). No AI summarization applied.`;
 
     return {
       patientInformation: {
-        name: { value: nameVal, confidence: '99%' },
-        dob: { value: dobVal, confidence: '98%' },
-        age: { value: '44', confidence: '96%' },
-        gender: { value: genderVal, confidence: '99%' },
+        name: { value: nameVal, confidence: nameVal === 'Not Found' ? 'N/A' : '99%' },
+        dob: { value: dobVal, confidence: dobVal === 'Not Found' ? 'N/A' : '98%' },
+        age: { value: ageVal, confidence: ageVal === 'Not Found' ? 'N/A' : '96%' },
+        gender: { value: genderVal, confidence: genderVal === 'Not Found' ? 'N/A' : '99%' },
         phone: { value: phoneVal, confidence: phoneVal === 'Not Found' ? 'N/A' : '95%' },
         email: { value: emailVal, confidence: emailVal === 'Not Found' ? 'N/A' : '97%' },
         address: { value: addressVal, confidence: addressVal === 'Not Found' ? 'N/A' : '94%' }

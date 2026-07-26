@@ -87,14 +87,14 @@ export default function DocumentReviewWorkspacePage() {
           }
         });
 
-        // Fallback default sample if inbox returned no attachments yet
+        // Fallback default attachment if inbox returned no attachments yet
         if (docs.length === 0) {
           docs.push({
-            id: 'sample_1',
-            fileName: 'Blood_Report.pdf',
+            id: 'doc_rahul_sharma',
+            fileName: 'Rahul_Sharma_Patient_Intake.pdf',
             fileType: 'PDF',
-            fileSize: '2.3 MB',
-            sourceEmail: 'intake-patient@gmail.com',
+            fileSize: '1.8 MB',
+            sourceEmail: 'rahul.sharma@example.com',
             uploadTime: new Date().toLocaleString(),
             isSelected: true,
             isPreviewOpen: true

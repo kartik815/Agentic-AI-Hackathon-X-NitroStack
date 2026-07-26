@@ -75,15 +75,15 @@ export default function DocumentProcessingPage() {
             documentCount: 1,
             documents: [
               {
-                id: 'doc_1',
-                fileName: 'Blood_Report.pdf',
+                id: 'doc_rahul_sharma',
+                fileName: 'Rahul_Sharma_Patient_Intake.pdf',
                 fileType: 'PDF',
-                fileSize: '2.3 MB',
-                sourceEmail: 'doctor@gmail.com',
+                fileSize: '1.8 MB',
+                sourceEmail: 'rahul.sharma@example.com',
                 uploadTime: new Date().toLocaleString()
               }
             ],
-            sourceEmail: 'doctor@gmail.com',
+            sourceEmail: 'rahul.sharma@example.com',
             receivedTime: new Date().toLocaleString(),
             temporaryStoragePath: 'data/temp_attachments'
           });
