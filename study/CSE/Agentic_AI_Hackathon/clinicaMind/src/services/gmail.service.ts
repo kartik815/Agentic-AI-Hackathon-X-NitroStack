@@ -4,6 +4,7 @@ import path from 'path';
 export interface GmailConnectionState {
   connected: boolean;
   email?: string;
+  accessToken?: string;
   refreshToken?: string;
   connectedAt?: string;
   lastSyncTime?: string;
@@ -170,6 +171,7 @@ export class GmailService {
     this.saveState({
       connected: true,
       email: userEmail,
+      accessToken: accessToken,
       refreshToken: finalRefreshToken,
       connectedAt: now,
       lastSyncTime: now,
@@ -214,54 +216,63 @@ export class GmailService {
     const state = this.loadState();
     const refreshTokenExists = Boolean(state.refreshToken);
 
-    if (!state.connected || !state.refreshToken) {
-      const reason = !state.connected ? 'Gmail is not connected in state' : 'No stored refresh token found in state';
-      return { accessToken: null, refreshTokenExists, error: reason };
+    if (!state.connected) {
+      return { accessToken: null, refreshTokenExists, error: 'Gmail service is not connected in state' };
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-    if (!clientId || !clientSecret) {
-      const reason = 'Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET environment variables';
-      return { accessToken: null, refreshTokenExists, error: reason };
-    }
-
-    try {
-      const res = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: state.refreshToken,
-          grant_type: 'refresh_token'
-        })
-      });
-
-      const data: any = await res.json();
-      if (res.ok && data.access_token) {
-        const expiresIn = data.expires_in || 3600;
-        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-
-        this.saveState({
-          ...state,
-          lastSyncTime: new Date().toISOString()
+    if (state.refreshToken && clientId && clientSecret) {
+      try {
+        const res = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: state.refreshToken,
+            grant_type: 'refresh_token'
+          }).toString()
         });
 
-        return {
-          accessToken: data.access_token,
-          refreshTokenExists: true,
-          expiresIn,
-          expiresAt
-        };
-      } else {
-        const errorMsg = data.error_description || data.error || `HTTP ${res.status} token exchange failure`;
-        return { accessToken: null, refreshTokenExists: true, error: errorMsg };
+        const data: any = await res.json();
+        if (res.ok && data.access_token) {
+          const expiresIn = data.expires_in || 3600;
+          const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+          this.saveState({
+            ...state,
+            accessToken: data.access_token,
+            lastSyncTime: new Date().toISOString()
+          });
+
+          return {
+            accessToken: data.access_token,
+            refreshTokenExists: true,
+            expiresIn,
+            expiresAt
+          };
+        }
+      } catch (e: any) {
+        console.error('[GmailService] Error during token refresh fetch:', e);
       }
-    } catch (e: any) {
-      return { accessToken: null, refreshTokenExists: true, error: e?.message || 'Token refresh network exception' };
     }
+
+    if (state.accessToken) {
+      return {
+        accessToken: state.accessToken,
+        refreshTokenExists,
+        expiresIn: 3600,
+        error: refreshTokenExists ? 'Token refresh fetch failed, falling back to active access token' : 'No refresh token stored, using initial access token'
+      };
+    }
+
+    return {
+      accessToken: null,
+      refreshTokenExists,
+      error: refreshTokenExists ? 'Failed to exchange stored refresh token' : 'No refresh token or access token found in state'
+    };
   }
 
   /**
