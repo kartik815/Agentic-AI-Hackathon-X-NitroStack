@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from '../../../../../components/Sidebar';
-import { Mail, RefreshCw, Paperclip, ChevronDown, ChevronUp, Inbox, Calendar, User, ShieldCheck, ArrowLeft, Bug } from 'lucide-react';
+import { Mail, RefreshCw, Paperclip, ChevronDown, ChevronUp, Inbox, Calendar, User, ShieldCheck, ArrowLeft, Bug, FolderOpen } from 'lucide-react';
 import Link from 'next/link';
 
 export default function GmailIntakeInboxPage() {
